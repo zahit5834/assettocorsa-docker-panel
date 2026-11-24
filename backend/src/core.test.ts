@@ -153,6 +153,8 @@ describe('configGenerator', () => {
     });
     expect(yml).toContain('EnableAi: true');
     expect(yml).toContain('http://185.10.20.30:5829/join/shutoko-trafik');
+    expect(yml).toContain('MissingCarChecksums: true');
+    expect(yml).not.toContain('IgnoreConfigurationErrors: true');
 
     const track: TrackRecord = {
       id: 'shuto_revival_project_beta',

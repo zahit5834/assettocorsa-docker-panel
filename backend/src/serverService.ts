@@ -252,11 +252,10 @@ export function writeServerConfigFiles(db: DatabaseSync, server: ServerRecord): 
   fs.writeFileSync(path.join(cfgDir, 'server_cfg.ini'), serverCfg, 'utf8');
   fs.writeFileSync(path.join(cfgDir, 'entry_list.ini'), entryList, 'utf8');
   fs.writeFileSync(path.join(cfgDir, 'csp_extra_options.ini'), cspExtra, 'utf8');
-  fs.writeFileSync(
-    path.join(cfgDir, 'welcome.txt'),
-    `${server.name} - Modlar ve bilgiler: http://${publicIp}:${panelPort}/join/${server.slug}\n`,
-    'utf8'
-  );
+  const welcomeLine = trafficCfg.welcomeMessage?.trim()
+    ? `${trafficCfg.welcomeMessage.trim()} | Modlar: http://${publicIp}:${panelPort}/join/${server.slug}\n`
+    : `${server.name} - Modlar ve bilgiler: http://${publicIp}:${panelPort}/join/${server.slug}\n`;
+  fs.writeFileSync(path.join(cfgDir, 'welcome.txt'), welcomeLine, 'utf8');
 
   if (server.engine === 'assettoserver') {
     const extraCfg = generateExtraCfgYml({

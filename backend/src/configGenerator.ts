@@ -356,32 +356,31 @@ export function generateExtraCfgYml(params: {
   panelPort: number;
   overrideYml?: string;
 }): string {
-  const { server, trafficConfig, publicIp, panelPort, overrideYml } = params;
-  const tCfg = { ...DEFAULT_TRAFFIC_CONFIG, ...trafficConfig };
+  const { server, publicIp, panelPort, overrideYml } = params;
   const joinPortalUrl = `http://${publicIp}:${panelPort}/join/${server.slug}`;
 
   const baseConfig: Record<string, unknown> = {
     EnableAi: Boolean(server.traffic_enabled),
     EnableClientMessages: true,
     EnableServerDetails: true,
-    IgnoreConfigurationErrors: true,
     ServerDescription: server.description
       ? `${server.description} | Modlar: ${joinPortalUrl}`
       : `Mod indirme ve sunucu bilgileri: ${joinPortalUrl}`,
-    WelcomeMessage:
-      trafficConfig?.welcomeMessage?.trim() || `Hos geldiniz! Mod paketi: ${joinPortalUrl}`,
-    AiParams: {
-      MaxAiTargetCount: tCfg.maxAiCount || 60,
-      AiPerPlayerTargetCount: tCfg.maxAiPerPlayer || 6,
-      MaxSpeedKmh: tCfg.maxSpeedKmh || 110,
-      MinSpeedKmh: Math.max(40, Math.round((tCfg.maxSpeedKmh || 110) * 0.55)),
-      RightLaneOffsetKmh: 10,
-      RightLaneOffset: tCfg.rightLaneOffset ?? 0.5,
-      MinAiSafetyDistanceMeters: 15,
-      MaxAiSafetyDistanceMeters: 50,
-      HideAiInPit: true,
+    IgnoreConfigurationErrors: {
+      MissingCarChecksums: true,
+      MissingTrackParams: true,
+      WrongServerDetails: true,
     },
   };
+
+  if (server.traffic_enabled) {
+    baseConfig.AiParams = {
+      PlayerRadiusMeters: 500,
+      PlayerPositionOffsetMeters: 100,
+      MinAiSafetyDistanceMeters: 15,
+      MaxAiSafetyDistanceMeters: 50,
+    };
+  }
 
   if (overrideYml && overrideYml.trim().length > 0) {
     try {
@@ -390,7 +389,6 @@ export function generateExtraCfgYml(params: {
         return yaml.dump({ ...baseConfig, ...(parsed as Record<string, unknown>) }, { lineWidth: 120 });
       }
     } catch {
-      // Fallback to raw merged comment
       return `${yaml.dump(baseConfig, { lineWidth: 120 })}\n# Pack Extra YAML:\n${overrideYml}\n`;
     }
   }
