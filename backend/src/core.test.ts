@@ -59,6 +59,11 @@ describe('configGenerator', () => {
     traffic_config_json: '{"maxAiCount":10,"maxSpeedKmh":130}',
     template: 'freeroam_traffic',
     description: 'TR Freeroam',
+    rules_text: 'Ters yön yasak',
+    banner_url: '',
+    weather_preset: 'sol_05_rain',
+    time_of_day: 'night',
+    time_multiplier: 2,
     cm_autodownload: 1,
     register_to_lobby: 0,
     bundle_sha256: '',
@@ -93,6 +98,9 @@ describe('configGenerator', () => {
     expect(ini).toContain('TCP_PORT=9610');
     expect(ini).toContain('HTTP_PORT=8085');
     expect(ini).toContain('MAX_CLIENTS=26');
+    expect(ini).toContain('SUN_ANGLE=112');
+    expect(ini).toContain('TIME_OF_DAY_MULTIPLIER=2');
+    expect(ini).toContain('GRAPHICS=3_clear_type=6');
     expect(ini).toContain('CARS=bmw_m3_e92;nissan_gtr');
     expect(ini).toContain('TRACK=shuto_revival_project_beta');
     expect(ini).toContain('CONFIG_TRACK=shibaura_pa');
@@ -166,6 +174,9 @@ describe('configGenerator', () => {
     expect(yml).toContain('EnableAi: true');
     expect(yml).toContain('http://185.10.20.30:5829/join/shutoko-trafik');
     expect(yml).toContain('MissingCarChecksums: true');
+    expect(yml).toContain('LaneWidthMeters: 3');
+    expect(yml).toContain('RightLaneOffsetKph: 0');
+    expect(yml).toContain('MaxPlayerDistanceToAiSplineMeters: 20');
     expect(yml).not.toContain('IgnoreConfigurationErrors: true');
 
     const track: TrackRecord = {

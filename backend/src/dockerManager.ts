@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import Docker from 'dockerode';
@@ -188,9 +189,19 @@ class DockerManager {
     const serverCfgDir = path.join(paths.serversDir, server.id, 'cfg');
     const serverLogsDir = path.join(paths.serversDir, server.id, 'logs');
     const serverPluginsDir = path.join(paths.serversDir, server.id, 'plugins');
+    const serverListsDir = path.join(paths.serversDir, server.id, 'lists');
     fs.mkdirSync(serverCfgDir, { recursive: true });
     fs.mkdirSync(serverLogsDir, { recursive: true });
     fs.mkdirSync(serverPluginsDir, { recursive: true });
+    fs.mkdirSync(serverListsDir, { recursive: true });
+
+    // Ensure live-reloaded list files exist before bind-mounting so Docker mounts them as files
+    for (const listFile of ['admins.txt', 'whitelist.txt', 'blacklist.txt']) {
+      const p = path.join(serverListsDir, listFile);
+      if (!fs.existsSync(p)) {
+        fs.writeFileSync(p, '', 'utf8');
+      }
+    }
 
     const isVanilla = server.engine === 'vanilla';
     if (isVanilla) {
@@ -213,6 +224,9 @@ class DockerManager {
       `${path.posix.join(hostDataDir, 'servers', server.id, 'cfg')}:/data/cfg`,
       `${path.posix.join(hostDataDir, 'servers', server.id, 'logs')}:/data/logs`,
       `${path.posix.join(hostDataDir, 'servers', server.id, 'plugins')}:/data/plugins`,
+      `${path.posix.join(hostDataDir, 'servers', server.id, 'lists', 'admins.txt')}:/data/admins.txt`,
+      `${path.posix.join(hostDataDir, 'servers', server.id, 'lists', 'whitelist.txt')}:/data/whitelist.txt`,
+      `${path.posix.join(hostDataDir, 'servers', server.id, 'lists', 'blacklist.txt')}:/data/blacklist.txt`,
       `${path.posix.join(hostDataDir, 'library', 'cars')}:/data/content/cars:ro`,
       `${path.posix.join(hostDataDir, 'library', 'tracks')}:/data/content/tracks:ro`,
     ];
@@ -480,6 +494,64 @@ class DockerManager {
     return {
       reachable: false,
       players: [],
+    };
+  }
+
+  async testServerPorts(server: ServerRecord, publicIp: string) {
+    const testTcp = (host: string, port: number, timeoutMs = 2000): Promise<boolean> =>
+      new Promise((resolve) => {
+        const socket = new net.Socket();
+        let settled = false;
+        const finish = (ok: boolean) => {
+          if (settled) return;
+          settled = true;
+          socket.destroy();
+          resolve(ok);
+        };
+        socket.setTimeout(timeoutMs);
+        socket.once('connect', () => finish(true));
+        socket.once('timeout', () => finish(false));
+        socket.once('error', () => finish(false));
+        socket.connect(port, host);
+      });
+
+    const testHttp = async (host: string, port: number): Promise<boolean> => {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), 2000);
+      try {
+        const res = await fetch(`http://${host}:${port}/INFO`, { signal: c.signal });
+        clearTimeout(t);
+        return res.ok;
+      } catch {
+        clearTimeout(t);
+        return false;
+      }
+    };
+
+    const [localHttp, localTcp, publicHttp, publicTcp] = await Promise.all([
+      testHttp('host.docker.internal', server.http_port).then((ok) =>
+        ok ? true : testHttp('127.0.0.1', server.http_port)
+      ),
+      testTcp('host.docker.internal', server.tcp_port).then((ok) =>
+        ok ? true : testTcp('127.0.0.1', server.tcp_port)
+      ),
+      publicIp && publicIp !== '127.0.0.1'
+        ? testHttp(publicIp, server.http_port)
+        : Promise.resolve(false),
+      publicIp && publicIp !== '127.0.0.1'
+        ? testTcp(publicIp, server.tcp_port)
+        : Promise.resolve(false),
+    ]);
+
+    return {
+      publicIp,
+      httpPort: server.http_port,
+      tcpPort: server.tcp_port,
+      udpPort: server.udp_port,
+      localHttp,
+      localTcp,
+      publicHttp,
+      publicTcp,
     };
   }
 }

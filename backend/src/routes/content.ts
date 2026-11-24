@@ -558,6 +558,103 @@ export async function contentRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
+  app.post(
+    '/api/content/tracks/:id/ai-spline',
+    { preHandler: [requireAuth] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const db = getDb();
+      const paths = getDataPaths();
+      const track = db.prepare('SELECT * FROM tracks WHERE id = ?').get(id) as unknown as
+        | TrackRecord
+        | undefined;
+      if (!track) return reply.code(404).send({ error: 'Harita bulunamadı.' });
+
+      const file = await request.file();
+      if (!file) {
+        return reply.code(400).send({ error: 'fast_lane.ai veya fast_lane.aip dosyası seçilmedi.' });
+      }
+
+      const trackAiDir = path.join(paths.tracksDir, id, 'ai');
+      fs.mkdirSync(trackAiDir, { recursive: true });
+
+      const origName = path.basename(file.filename || 'fast_lane.aip');
+      const lower = origName.toLowerCase();
+
+      if (lower.endsWith('.ai') || lower.endsWith('.aip')) {
+        const targetName = lower.endsWith('.aip') ? 'fast_lane.aip' : 'fast_lane.ai';
+        const targetPath = path.join(trackAiDir, targetName);
+        await pipeline(file.file, fs.createWriteStream(targetPath));
+        try {
+          fs.chmodSync(targetPath, 0o644);
+        } catch {
+          // ignore on Windows
+        }
+        db.prepare('UPDATE tracks SET has_ai_spline = 1 WHERE id = ?').run(id);
+        return {
+          success: true,
+          filename: targetName,
+          size: fs.statSync(targetPath).size,
+          message: `${targetName} haritaya yüklendi. Sunucuyu yeniden başlatınca aktif olur.`,
+        };
+      }
+
+      // Archive containing fast_lane.ai(p)
+      const tmpArchive = path.join(
+        paths.tmpDir,
+        `spline-${crypto.randomUUID()}${path.extname(lower) || '.zip'}`
+      );
+      const workDir = path.join(paths.tmpDir, `spline-extract-${crypto.randomUUID()}`);
+      try {
+        await pipeline(file.file, fs.createWriteStream(tmpArchive));
+        await extractArchiveSafely(tmpArchive, workDir);
+
+        let foundSpline: string | null = null;
+        const walkFind = (dir: string) => {
+          for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) {
+              walkFind(full);
+            } else if (/^fast_lane\.aip?$/i.test(e.name)) {
+              foundSpline = full;
+            }
+          }
+        };
+        walkFind(workDir);
+
+        if (!foundSpline) {
+          return reply.code(400).send({
+            error: 'Arşiv içinde fast_lane.ai veya fast_lane.aip dosyası bulunamadı.',
+          });
+        }
+
+        const targetName = (foundSpline as string).toLowerCase().endsWith('.aip')
+          ? 'fast_lane.aip'
+          : 'fast_lane.ai';
+        const targetPath = path.join(trackAiDir, targetName);
+        fs.copyFileSync(foundSpline, targetPath);
+        try {
+          fs.chmodSync(targetPath, 0o644);
+        } catch {
+          // ignore
+        }
+        db.prepare('UPDATE tracks SET has_ai_spline = 1 WHERE id = ?').run(id);
+        return {
+          success: true,
+          filename: targetName,
+          size: fs.statSync(targetPath).size,
+          message: `${targetName} arşivden çıkarılıp haritaya yüklendi.`,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'AI spline yüklenemedi.';
+        return reply.code(400).send({ error: msg });
+      } finally {
+        fs.rmSync(tmpArchive, { force: true });
+        fs.rmSync(workDir, { recursive: true, force: true });
+      }
+    }
+  );
+
   app.delete('/api/content/tracks/:id', { preHandler: [requireAuth] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const db = getDb();

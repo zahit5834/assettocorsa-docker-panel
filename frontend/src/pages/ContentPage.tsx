@@ -28,8 +28,9 @@ export default function ContentPage() {
   const [uploadMode, setUploadMode] = useState<'file' | 'url'>('file');
   const [search, setSearch] = useState('');
 
-  // Upload state
-  const [file, setFile] = useState<File | null>(null);
+  // Upload state (supports multi-file upload queue)
+  const [files, setFiles] = useState<File[]>([]);
+  const [queueStatus, setQueueStatus] = useState('');
   const [remoteUrl, setRemoteUrl] = useState('');
   const [hintType, setHintType] = useState<'auto' | 'car' | 'track' | 'pack'>('auto');
   const [version, setVersion] = useState('');
@@ -38,6 +39,7 @@ export default function ContentPage() {
   const [packName, setPackName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [splineUploadingId, setSplineUploadingId] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
   const [uploadWarnings, setUploadWarnings] = useState<
     Array<{ carId: string; carName: string; warnings: CarCompatibilityWarning[] }>
@@ -62,40 +64,77 @@ export default function ContentPage() {
     e.preventDefault();
     setError('');
     setStatusMsg('');
+    setQueueStatus('');
     setUploadWarnings([]);
     setUploading(true);
     setProgress(0);
 
     try {
       if (uploadMode === 'file') {
-        if (!file) throw new Error('Lütfen bir .zip, .7z, .tar.gz veya .rar dosyası seçin.');
-        const fd = new FormData();
-        fd.append('file', file);
-        if (hintType !== 'auto') fd.append('type', hintType);
-        if (version.trim()) fd.append('version', version.trim());
-        fd.append('is_kunos', String(markKunos));
-        fd.append('is_traffic', String(markTraffic));
-        if (markTraffic && packName.trim()) fd.append('pack_category', 'traffic');
-        if (packName.trim()) fd.append('pack_name', packName.trim());
+        if (files.length === 0) {
+          throw new Error('Lütfen en az bir .zip, .7z, .tar.gz veya .rar dosyası seçin.');
+        }
 
-        const res = await uploadWithProgress<{
-          importedCars: string[];
-          importedTracks: string[];
-          carWarnings?: Array<{
-            carId: string;
-            carName: string;
-            warnings: CarCompatibilityWarning[];
-          }>;
-          createdPackId: string | null;
-        }>('/api/content/upload', fd, setProgress);
+        let totalTracks = 0;
+        let totalCars = 0;
+        let packsCreated = 0;
+        const collectedWarnings: Array<{
+          carId: string;
+          carName: string;
+          warnings: CarCompatibilityWarning[];
+        }> = [];
+        const failedNames: string[] = [];
+
+        for (let i = 0; i < files.length; i++) {
+          const currentFile = files[i];
+          setQueueStatus(`(${i + 1} / ${files.length}) ${currentFile.name} yükleniyor...`);
+          setProgress(0);
+
+          const fd = new FormData();
+          fd.append('file', currentFile);
+          if (hintType !== 'auto') fd.append('type', hintType);
+          if (version.trim()) fd.append('version', version.trim());
+          fd.append('is_kunos', String(markKunos));
+          fd.append('is_traffic', String(markTraffic));
+          if (packName.trim() && files.length === 1) {
+            if (markTraffic) fd.append('pack_category', 'traffic');
+            fd.append('pack_name', packName.trim());
+          }
+
+          try {
+            const res = await uploadWithProgress<{
+              importedCars: string[];
+              importedTracks: string[];
+              carWarnings?: Array<{
+                carId: string;
+                carName: string;
+                warnings: CarCompatibilityWarning[];
+              }>;
+              createdPackId: string | null;
+            }>('/api/content/upload', fd, setProgress);
+
+            totalTracks += res.importedTracks.length;
+            totalCars += res.importedCars.length;
+            if (res.createdPackId) packsCreated++;
+            if (res.carWarnings) collectedWarnings.push(...res.carWarnings);
+          } catch (itemErr) {
+            failedNames.push(
+              `${currentFile.name}: ${itemErr instanceof Error ? itemErr.message : 'Hata'}`
+            );
+          }
+        }
 
         setStatusMsg(
-          `Başarıyla eklendi: ${res.importedTracks.length} harita, ${res.importedCars.length} araba${
-            res.createdPackId ? ' (+ Pack oluşturuldu!)' : ''
+          `Tamamlandı (${files.length - failedNames.length}/${files.length} dosya): ${totalTracks} harita, ${totalCars} araba eklendi${
+            packsCreated > 0 ? ' (+ Pack oluşturuldu!)' : ''
           }`
         );
-        setUploadWarnings(res.carWarnings || []);
-        setFile(null);
+        if (failedNames.length > 0) {
+          setError(`Başarısız dosyalar:\n${failedNames.join('\n')}`);
+        }
+        setUploadWarnings(collectedWarnings);
+        setFiles([]);
+        setQueueStatus('');
         setPackName('');
         setVersion('');
       } else {
@@ -176,6 +215,27 @@ export default function ContentPage() {
     if (!confirm(`"${name}" kalıcı olarak silinecek. Emin misiniz?`)) return;
     await apiFetch(`/api/content/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' });
     await load();
+  };
+
+  const handleSplineUpload = async (trackId: string, splineFile: File) => {
+    setSplineUploadingId(trackId);
+    setError('');
+    setStatusMsg('');
+    try {
+      const fd = new FormData();
+      fd.append('file', splineFile);
+      const res = await uploadWithProgress<{ message: string }>(
+        `/api/content/tracks/${encodeURIComponent(trackId)}/ai-spline`,
+        fd,
+        () => undefined
+      );
+      setStatusMsg(res.message);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'AI spline yüklenemedi.');
+    } finally {
+      setSplineUploadingId(null);
+    }
   };
 
   const playerCars = cars.filter((c) => !c.is_traffic);
@@ -275,18 +335,23 @@ export default function ContentPage() {
             <label className="block border-2 border-dashed border-slate-700 hover:border-red-500/70 rounded-xl p-6 text-center cursor-pointer bg-[#090d14] transition">
               <Upload className="w-7 h-7 text-slate-400 mx-auto mb-2" />
               <div className="text-sm font-medium text-slate-200">
-                {file
-                  ? `${file.name} (${formatBytes(file.size)})`
-                  : 'Arşiv dosyasını seçin veya buraya bırakın'}
+                {files.length === 1
+                  ? `${files[0].name} (${formatBytes(files[0].size)})`
+                  : files.length > 1
+                    ? `${files.length} arşiv seçildi (${formatBytes(
+                        files.reduce((sum, f) => sum + f.size, 0)
+                      )}) — sırayla kuyruk halinde yüklenecek`
+                    : 'Tek veya birden fazla arşiv dosyasını seçin / sürükleyip bırakın'}
               </div>
               <div className="text-xs text-slate-500 mt-1">
-                Desteklenenler: .zip, .7z, .rar, .tar.gz
+                Çoklu seçim desteklenir • Desteklenenler: .zip, .7z, .rar, .tar.gz
               </div>
               <input
                 type="file"
+                multiple
                 accept=".zip,.7z,.rar,.tar,.gz,.tgz"
                 className="hidden"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                onChange={(e) => setFiles(Array.from(e.target.files || []))}
               />
             </label>
           ) : (
@@ -369,9 +434,11 @@ export default function ContentPage() {
             <button type="submit" disabled={uploading} className="btn-primary">
               {uploading
                 ? uploadMode === 'file'
-                  ? `Yükleniyor ve İşleniyor (%${progress})...`
+                  ? `${queueStatus || 'Yükleniyor'} (%${progress})`
                   : 'VDS İndiriyor ve İşliyor...'
-                : 'Yükle ve Kütüphaneye Ekle'}
+                : files.length > 1
+                  ? `${files.length} Dosyayı Sırayla Yükle`
+                  : 'Yükle ve Kütüphaneye Ekle'}
             </button>
           </div>
 
@@ -483,19 +550,39 @@ export default function ContentPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs">
-                        <button
-                          onClick={() => toggleKunos('tracks', t.id, t.is_kunos)}
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] ${
-                            t.is_kunos
-                              ? 'bg-blue-500/20 text-blue-300'
-                              : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                          }`}
-                          title="Orijinal Kunos içeriği durumunu değiştir"
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5" />
-                          {t.is_kunos ? 'Kunos (Oyunla Gelir)' : 'Özel Mod'}
-                        </button>
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 text-xs">
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => toggleKunos('tracks', t.id, t.is_kunos)}
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] ${
+                              t.is_kunos
+                                ? 'bg-blue-500/20 text-blue-300'
+                                : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                            title="Orijinal Kunos içeriği durumunu değiştir"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            {t.is_kunos ? 'Kunos' : 'Mod'}
+                          </button>
+
+                          <label
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 cursor-pointer"
+                            title="Bu haritaya fast_lane.ai / fast_lane.aip trafik şeridi yükle"
+                          >
+                            <Upload className="w-3 h-3" />
+                            {splineUploadingId === t.id ? 'Yükleniyor...' : 'AI Spline'}
+                            <input
+                              type="file"
+                              accept=".ai,.aip,.zip,.7z,.rar"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) handleSplineUpload(t.id, f);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                        </div>
                         <div className="flex gap-1">
                           <a
                             href={`/api/public/dl/track/${encodeURIComponent(t.id)}`}

@@ -1,17 +1,35 @@
 import {
+  Archive,
   CheckCircle2,
   Cpu,
   DownloadCloud,
   GitBranch,
+  HardDrive,
   KeyRound,
   RefreshCw,
   Save,
   Terminal,
+  Trash2,
   Upload,
   XCircle,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { apiFetch, formatBytes, uploadWithProgress } from '../lib/api';
+import { apiFetch, formatBytes, getToken, uploadWithProgress } from '../lib/api';
+
+interface StorageOverview {
+  breakdown: {
+    carsBytes: number;
+    tracksBytes: number;
+    packsBytes: number;
+    bundlesBytes: number;
+    tmpBytes: number;
+    serversBytes: number;
+    reclaimableBytes: number;
+    totalBytes: number;
+  };
+  unusedCars: Array<{ id: string; name: string; size: number }>;
+  unusedTracks: Array<{ id: string; name: string; size: number }>;
+}
 
 interface SettingsResponse {
   settings: Record<string, string>;
@@ -69,6 +87,10 @@ export default function SettingsPage() {
   const [showUpdateLogs, setShowUpdateLogs] = useState(false);
   const pollTimerRef = useRef<number | null>(null);
 
+  // Storage & Backup state
+  const [storage, setStorage] = useState<StorageOverview | null>(null);
+  const [cleaning, setCleaning] = useState(false);
+
   // Password change
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -76,12 +98,38 @@ export default function SettingsPage() {
   const [err, setErr] = useState('');
 
   const load = async () => {
-    const res = await apiFetch<SettingsResponse>('/api/system/settings');
+    const [res, storageRes] = await Promise.all([
+      apiFetch<SettingsResponse>('/api/system/settings'),
+      apiFetch<StorageOverview>('/api/system/storage').catch(() => null),
+    ]);
     setData(res);
+    if (storageRes) setStorage(storageRes);
     setPublicIp(res.settings.public_ip || '');
     setPanelPort(res.settings.panel_port || '5829');
     setAssettoImg(res.settings.assettoserver_image || 'compujuckel/assettoserver:latest');
     setVanillaImg(res.settings.vanilla_ac_image || 'ac-panel-vanilla:latest');
+  };
+
+  const runCleanup = async () => {
+    setCleaning(true);
+    setMsg('');
+    setErr('');
+    try {
+      const res = await apiFetch<{ freedBytes: number; message: string }>('/api/system/cleanup', {
+        method: 'POST',
+      });
+      setMsg(`${res.message} (${formatBytes(res.freedBytes)} disk alanı açıldı.)`);
+      await load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Temizlik başarısız.');
+    } finally {
+      setCleaning(false);
+    }
+  };
+
+  const downloadBackup = () => {
+    const token = getToken();
+    window.open(`/api/system/backup?token=${encodeURIComponent(token || '')}`, '_blank');
   };
 
   const loadUpdateStatus = async (fetchRemote = false) => {
@@ -524,6 +572,87 @@ export default function SettingsPage() {
               </button>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Storage, Disk Cleanup & Backup */}
+      {storage && (
+        <div className="panel-card p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-white flex items-center gap-2">
+                <HardDrive className="w-4 h-4 text-sky-400" /> Depolama, Disk Temizliği &amp; Yedekleme
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Panel veri kullanımı: <strong className="text-white">{formatBytes(storage.breakdown.totalBytes)}</strong>
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={downloadBackup} className="btn-secondary text-xs">
+                <Archive className="w-3.5 h-3.5 text-emerald-400" /> Ayar Yedeği İndir (.ZIP)
+              </button>
+              <button
+                type="button"
+                disabled={cleaning}
+                onClick={runCleanup}
+                className="btn-secondary text-xs text-amber-300"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {cleaning
+                  ? 'Temizleniyor...'
+                  : `Önbellek Temizle (${formatBytes(storage.breakdown.reclaimableBytes)})`}
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
+            <div className="p-3 rounded-lg bg-[#090d14] border border-slate-800">
+              <div className="text-slate-400">Haritalar</div>
+              <div className="font-mono font-bold text-white mt-0.5">
+                {formatBytes(storage.breakdown.tracksBytes)}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-[#090d14] border border-slate-800">
+              <div className="text-slate-400">Arabalar</div>
+              <div className="font-mono font-bold text-white mt-0.5">
+                {formatBytes(storage.breakdown.carsBytes)}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-[#090d14] border border-slate-800">
+              <div className="text-slate-400">Pack&apos;ler</div>
+              <div className="font-mono font-bold text-white mt-0.5">
+                {formatBytes(storage.breakdown.packsBytes)}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-[#090d14] border border-slate-800">
+              <div className="text-slate-400">Bundle Önbellek</div>
+              <div className="font-mono font-bold text-amber-300 mt-0.5">
+                {formatBytes(storage.breakdown.bundlesBytes)}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-[#090d14] border border-slate-800">
+              <div className="text-slate-400">Geçici (tmp)</div>
+              <div className="font-mono font-bold text-amber-300 mt-0.5">
+                {formatBytes(storage.breakdown.tmpBytes)}
+              </div>
+            </div>
+            <div className="p-3 rounded-lg bg-[#090d14] border border-slate-800">
+              <div className="text-slate-400">Sunucu Verisi</div>
+              <div className="font-mono font-bold text-white mt-0.5">
+                {formatBytes(storage.breakdown.serversBytes)}
+              </div>
+            </div>
+          </div>
+
+          {(storage.unusedCars.length > 0 || storage.unusedTracks.length > 0) && (
+            <div className="p-3.5 rounded-xl bg-[#090d14] border border-slate-800 text-xs text-slate-300">
+              <span className="font-semibold text-slate-200">
+                Hiçbir sunucuda veya pack&apos;te kullanılmayan modlar:
+              </span>{' '}
+              {storage.unusedTracks.length} harita, {storage.unusedCars.length} araba — disk alanı
+              açmak isterseniz <strong>Harita &amp; Arabalar</strong> sayfasından silebilirsiniz.
+            </div>
+          )}
         </div>
       )}
 

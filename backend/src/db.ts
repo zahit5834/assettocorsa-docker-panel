@@ -76,6 +76,11 @@ export interface ServerRecord {
   traffic_config_json: string;
   template: string;
   description: string;
+  rules_text: string;
+  banner_url: string;
+  weather_preset: string;
+  time_of_day: string;
+  time_multiplier: number;
   cm_autodownload: number;
   register_to_lobby: number;
   bundle_sha256: string;
@@ -200,6 +205,11 @@ function initSchema(db: DatabaseSync) {
       traffic_config_json TEXT NOT NULL DEFAULT '{}',
       template TEXT NOT NULL DEFAULT 'freeroam_traffic',
       description TEXT NOT NULL DEFAULT '',
+      rules_text TEXT NOT NULL DEFAULT '',
+      banner_url TEXT NOT NULL DEFAULT '',
+      weather_preset TEXT NOT NULL DEFAULT '3_clear',
+      time_of_day TEXT NOT NULL DEFAULT 'noon',
+      time_multiplier REAL NOT NULL DEFAULT 1,
       cm_autodownload INTEGER NOT NULL DEFAULT 1,
       register_to_lobby INTEGER NOT NULL DEFAULT 0,
       bundle_sha256 TEXT NOT NULL DEFAULT '',
@@ -215,8 +225,18 @@ function initSchema(db: DatabaseSync) {
   // Safe schema migrations for existing databases
   try {
     const cols = db.prepare('PRAGMA table_info(servers)').all() as Array<{ name: string }>;
-    if (!cols.some((c) => c.name === 'register_to_lobby')) {
-      db.exec('ALTER TABLE servers ADD COLUMN register_to_lobby INTEGER NOT NULL DEFAULT 0;');
+    const serverMigrations: Array<[string, string]> = [
+      ['register_to_lobby', 'INTEGER NOT NULL DEFAULT 0'],
+      ['rules_text', "TEXT NOT NULL DEFAULT ''"],
+      ['banner_url', "TEXT NOT NULL DEFAULT ''"],
+      ['weather_preset', "TEXT NOT NULL DEFAULT '3_clear'"],
+      ['time_of_day', "TEXT NOT NULL DEFAULT 'noon'"],
+      ['time_multiplier', 'REAL NOT NULL DEFAULT 1'],
+    ];
+    for (const [colName, colDef] of serverMigrations) {
+      if (!cols.some((c) => c.name === colName)) {
+        db.exec(`ALTER TABLE servers ADD COLUMN ${colName} ${colDef};`);
+      }
     }
     const carCols = db.prepare('PRAGMA table_info(cars)').all() as Array<{ name: string }>;
     if (!carCols.some((c) => c.name === 'is_traffic')) {

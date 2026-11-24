@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireAuth, verifyToken } from '../auth.js';
@@ -12,9 +13,15 @@ import {
   safeJsonParse,
   SERVER_TEMPLATES,
   slugify,
+  TIME_OF_DAY_PRESETS,
+  WEATHER_PRESETS,
   type TrafficConfig,
 } from '../configGenerator.js';
-import { createMultiContentBundleZip } from '../contentScanner.js';
+import {
+  createMultiContentBundleZip,
+  extractArchiveSafely,
+  isPathInside,
+} from '../contentScanner.js';
 import { getDb, getSetting, type ServerRecord } from '../db.js';
 import { dockerManager } from '../dockerManager.js';
 import {
@@ -27,11 +34,18 @@ import {
 
 const trafficSchema = z
   .object({
-    maxAiPerPlayer: z.number().int().min(1).max(30).default(6),
-    aiDensity: z.number().int().min(1).max(100).default(20),
+    maxAiPerPlayer: z.number().int().min(1).max(30).default(8),
+    aiDensity: z.number().int().min(1).max(100).default(25),
     maxAiCount: z.number().int().min(4).max(150).default(60),
-    maxSpeedKmh: z.number().int().min(30).max(320).default(110),
-    rightLaneOffset: z.number().min(-2).max(2).default(0.5),
+    maxSpeedKmh: z.number().int().min(30).max(320).default(90),
+    rightLaneOffset: z.number().min(-2).max(2).default(0),
+    rightLaneOffsetKph: z.number().int().min(-60).max(60).default(0),
+    laneWidthMeters: z.number().min(2).max(6).default(3),
+    maxPlayerDistanceMeters: z.number().min(5).max(80).default(20),
+    minSafetyDistanceMeters: z.number().min(3).max(50).default(6),
+    maxSafetyDistanceMeters: z.number().min(5).max(80).default(18),
+    stateSpawnDistanceMeters: z.number().min(50).max(500).default(150),
+    twoWayTraffic: z.boolean().default(false),
     trafficCars: z.array(z.string()).default([]),
     trafficPackIds: z.array(z.string()).default([]),
     welcomeMessage: z.string().optional(),
@@ -55,6 +69,11 @@ const createServerSchema = z.object({
   traffic_config: trafficSchema,
   template: z.string().optional().default('freeroam_traffic'),
   description: z.string().optional().default(''),
+  rules_text: z.string().optional().default(''),
+  banner_url: z.string().optional().default(''),
+  weather_preset: z.string().optional().default('3_clear'),
+  time_of_day: z.string().optional().default('noon'),
+  time_multiplier: z.number().min(0).max(60).optional().default(1),
   cm_autodownload: z.boolean().optional().default(true),
   register_to_lobby: z.boolean().optional().default(false),
   memory_limit_mb: z.number().int().min(0).max(65536).optional().default(0),
@@ -115,7 +134,14 @@ async function enrichServer(server: ServerRecord, includeStats = false) {
 
 export async function serverRoutes(app: FastifyInstance) {
   app.get('/api/servers/templates', { preHandler: [requireAuth] }, async () => {
-    return { templates: SERVER_TEMPLATES };
+    return {
+      templates: SERVER_TEMPLATES,
+      weatherPresets: WEATHER_PRESETS,
+      timePresets: Object.entries(TIME_OF_DAY_PRESETS).map(([id, v]) => ({
+        id,
+        label: v.label,
+      })),
+    };
   });
 
   app.get('/api/servers/suggest-ports', { preHandler: [requireAuth] }, async () => {
@@ -170,9 +196,10 @@ export async function serverRoutes(app: FastifyInstance) {
       `INSERT INTO servers (
         id, slug, name, engine, udp_port, tcp_port, http_port, password, admin_password,
         max_clients, track_id, track_config, car_ids_json, pack_ids_json,
-        traffic_enabled, traffic_config_json, template, description, cm_autodownload,
+        traffic_enabled, traffic_config_json, template, description, rules_text, banner_url,
+        weather_preset, time_of_day, time_multiplier, cm_autodownload,
         register_to_lobby, memory_limit_mb, cpu_limit
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       slug,
@@ -192,6 +219,11 @@ export async function serverRoutes(app: FastifyInstance) {
       JSON.stringify({ ...DEFAULT_TRAFFIC_CONFIG, ...data.traffic_config }),
       data.template,
       data.description,
+      data.rules_text,
+      data.banner_url,
+      data.weather_preset,
+      data.time_of_day,
+      data.time_multiplier,
       data.cm_autodownload ? 1 : 0,
       data.register_to_lobby ? 1 : 0,
       data.memory_limit_mb,
@@ -251,7 +283,9 @@ export async function serverRoutes(app: FastifyInstance) {
          name = ?, engine = ?, udp_port = ?, tcp_port = ?, http_port = ?,
          password = ?, admin_password = ?, max_clients = ?, track_id = ?, track_config = ?,
          car_ids_json = ?, pack_ids_json = ?, traffic_enabled = ?, traffic_config_json = ?,
-         template = ?, description = ?, cm_autodownload = ?, register_to_lobby = ?, memory_limit_mb = ?, cpu_limit = ?,
+         template = ?, description = ?, rules_text = ?, banner_url = ?,
+         weather_preset = ?, time_of_day = ?, time_multiplier = ?,
+         cm_autodownload = ?, register_to_lobby = ?, memory_limit_mb = ?, cpu_limit = ?,
          updated_at = datetime('now')
        WHERE id = ?`
     ).run(
@@ -271,6 +305,11 @@ export async function serverRoutes(app: FastifyInstance) {
       JSON.stringify({ ...DEFAULT_TRAFFIC_CONFIG, ...data.traffic_config }),
       data.template,
       data.description,
+      data.rules_text,
+      data.banner_url,
+      data.weather_preset,
+      data.time_of_day,
+      data.time_multiplier,
       data.cm_autodownload ? 1 : 0,
       data.register_to_lobby ? 1 : 0,
       data.memory_limit_mb,
@@ -317,9 +356,10 @@ export async function serverRoutes(app: FastifyInstance) {
       `INSERT INTO servers (
         id, slug, name, engine, udp_port, tcp_port, http_port, password, admin_password,
         max_clients, track_id, track_config, car_ids_json, pack_ids_json,
-        traffic_enabled, traffic_config_json, template, description, cm_autodownload,
+        traffic_enabled, traffic_config_json, template, description, rules_text, banner_url,
+        weather_preset, time_of_day, time_multiplier, cm_autodownload,
         register_to_lobby, memory_limit_mb, cpu_limit
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newId,
       newSlug,
@@ -339,6 +379,11 @@ export async function serverRoutes(app: FastifyInstance) {
       source.traffic_config_json,
       source.template,
       source.description,
+      source.rules_text || '',
+      source.banner_url || '',
+      source.weather_preset || '3_clear',
+      source.time_of_day || 'noon',
+      source.time_multiplier ?? 1,
       source.cm_autodownload,
       source.register_to_lobby,
       source.memory_limit_mb,
@@ -516,13 +561,162 @@ export async function serverRoutes(app: FastifyInstance) {
   app.get('/api/servers/:id/logs', { preHandler: [requireAuth] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const db = getDb();
-    const server = db.prepare('SELECT * FROM servers WHERE id = ?').get(id) as
+    const server = db.prepare('SELECT * FROM servers WHERE id = ?').get(id) as unknown as
       | ServerRecord
       | undefined;
     if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
 
     const logs = await dockerManager.getRecentLogs(server, 250);
     return { logs };
+  });
+
+  // Live Admin / Whitelist / Blacklist Management (hot-reloaded by AssettoServer)
+  app.get('/api/servers/:id/lists', { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const db = getDb();
+    const server = db.prepare('SELECT id FROM servers WHERE id = ?').get(id);
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const paths = getDataPaths();
+    const listsDir = path.join(paths.serversDir, id, 'lists');
+    fs.mkdirSync(listsDir, { recursive: true });
+
+    const readList = (fname: string) => {
+      const p = path.join(listsDir, fname);
+      return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+    };
+
+    return {
+      admins: readList('admins.txt'),
+      whitelist: readList('whitelist.txt'),
+      blacklist: readList('blacklist.txt'),
+    };
+  });
+
+  app.put('/api/servers/:id/lists', { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const schema = z.object({
+      admins: z.string().optional(),
+      whitelist: z.string().optional(),
+      blacklist: z.string().optional(),
+    });
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Geçersiz liste verisi.' });
+
+    const db = getDb();
+    const server = db.prepare('SELECT id FROM servers WHERE id = ?').get(id);
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const paths = getDataPaths();
+    const listsDir = path.join(paths.serversDir, id, 'lists');
+    fs.mkdirSync(listsDir, { recursive: true });
+
+    if (parsed.data.admins !== undefined) {
+      fs.writeFileSync(path.join(listsDir, 'admins.txt'), parsed.data.admins, 'utf8');
+    }
+    if (parsed.data.whitelist !== undefined) {
+      fs.writeFileSync(path.join(listsDir, 'whitelist.txt'), parsed.data.whitelist, 'utf8');
+    }
+    if (parsed.data.blacklist !== undefined) {
+      fs.writeFileSync(path.join(listsDir, 'blacklist.txt'), parsed.data.blacklist, 'utf8');
+    }
+
+    return {
+      success: true,
+      message: 'Listeler kaydedildi (AssettoServer çalışırken otomatik günceller).',
+    };
+  });
+
+  // AssettoServer Plugin Manager (.zip / .7z / .rar / .dll)
+  app.get('/api/servers/:id/plugins', { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const db = getDb();
+    const server = db.prepare('SELECT id FROM servers WHERE id = ?').get(id);
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const paths = getDataPaths();
+    const pluginsDir = path.join(paths.serversDir, id, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+
+    const entries = fs.readdirSync(pluginsDir, { withFileTypes: true }).map((e) => {
+      const full = path.join(pluginsDir, e.name);
+      const stat = fs.statSync(full);
+      return {
+        name: e.name,
+        isDirectory: e.isDirectory(),
+        size: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+      };
+    });
+
+    return { plugins: entries };
+  });
+
+  app.post('/api/servers/:id/plugins/upload', { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const db = getDb();
+    const server = db.prepare('SELECT id FROM servers WHERE id = ?').get(id);
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const file = await request.file();
+    if (!file) return reply.code(400).send({ error: 'Plugin dosyası seçilmedi.' });
+
+    const paths = getDataPaths();
+    const pluginsDir = path.join(paths.serversDir, id, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+
+    const origName = path.basename(file.filename || 'plugin.zip');
+    const lower = origName.toLowerCase();
+
+    if (lower.endsWith('.dll') || lower.endsWith('.yml') || lower.endsWith('.json')) {
+      const dest = path.join(pluginsDir, origName.replace(/[^a-zA-Z0-9_.-]/g, '_'));
+      await pipeline(file.file, fs.createWriteStream(dest));
+      return { success: true, message: `${origName} plugins klasörüne yüklendi.` };
+    }
+
+    const tmpFile = path.join(paths.tmpDir, `plugin-${crypto.randomUUID()}${path.extname(lower) || '.zip'}`);
+    try {
+      await pipeline(file.file, fs.createWriteStream(tmpFile));
+      await extractArchiveSafely(tmpFile, pluginsDir);
+      return { success: true, message: `${origName} plugins klasörüne çıkarıldı. Aktif olması için sunucuyu yeniden başlatın.` };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Plugin arşivi çıkarılamadı.';
+      return reply.code(400).send({ error: msg });
+    } finally {
+      if (fs.existsSync(tmpFile)) fs.rmSync(tmpFile, { force: true });
+    }
+  });
+
+  app.delete('/api/servers/:id/plugins/:name', { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id, name } = request.params as { id: string; name: string };
+    const db = getDb();
+    const server = db.prepare('SELECT id FROM servers WHERE id = ?').get(id);
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const paths = getDataPaths();
+    const pluginsDir = path.join(paths.serversDir, id, 'plugins');
+    const target = path.join(pluginsDir, path.basename(name));
+    if (!isPathInside(pluginsDir, target) || !fs.existsSync(target)) {
+      return reply.code(404).send({ error: 'Plugin bulunamadı.' });
+    }
+
+    fs.rmSync(target, { recursive: true, force: true });
+    return { success: true };
+  });
+
+  // Live Port / Firewall Reachability Test
+  app.post('/api/servers/:id/test-ports', { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const db = getDb();
+    const server = db.prepare('SELECT * FROM servers WHERE id = ?').get(id) as unknown as
+      | ServerRecord
+      | undefined;
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const publicIp = getSetting(db, 'public_ip', '127.0.0.1');
+    const result = await dockerManager.testServerPorts(server, publicIp);
+    const firewall = generateFirewallCommands(server.udp_port, server.tcp_port, server.http_port);
+    return { ...result, firewall };
   });
 
   // Live WebSocket console log stream

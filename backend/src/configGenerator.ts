@@ -91,17 +91,31 @@ export interface TrafficConfig {
   maxAiCount: number;
   maxSpeedKmh: number;
   rightLaneOffset: number;
+  rightLaneOffsetKph?: number;
+  laneWidthMeters?: number;
+  maxPlayerDistanceMeters?: number;
+  minSafetyDistanceMeters?: number;
+  maxSafetyDistanceMeters?: number;
+  stateSpawnDistanceMeters?: number;
+  twoWayTraffic?: boolean;
   trafficCars: string[];
   trafficPackIds?: string[];
   welcomeMessage?: string;
 }
 
 export const DEFAULT_TRAFFIC_CONFIG: TrafficConfig = {
-  maxAiPerPlayer: 6,
-  aiDensity: 20,
+  maxAiPerPlayer: 8,
+  aiDensity: 25,
   maxAiCount: 60,
-  maxSpeedKmh: 110,
-  rightLaneOffset: 0.5,
+  maxSpeedKmh: 90,
+  rightLaneOffset: 0,
+  rightLaneOffsetKph: 0,
+  laneWidthMeters: 3,
+  maxPlayerDistanceMeters: 20,
+  minSafetyDistanceMeters: 6,
+  maxSafetyDistanceMeters: 18,
+  stateSpawnDistanceMeters: 150,
+  twoWayTraffic: false,
   trafficCars: [],
   trafficPackIds: [],
   welcomeMessage: 'Sunucuya hoş geldiniz! Keyifli sürüşler.',
@@ -156,6 +170,25 @@ export function getAiSlotCount(server: ServerRecord, trafficConfig?: TrafficConf
   return Math.min(Math.max(4, tCfg.maxAiCount || 20), 120);
 }
 
+export const TIME_OF_DAY_PRESETS: Record<string, { label: string; sunAngle: number; ambient: number; road: number }> = {
+  morning: { label: 'Sabah (09:00)', sunAngle: -40, ambient: 19, road: 24 },
+  noon: { label: 'Öğle (13:00)', sunAngle: 0, ambient: 26, road: 34 },
+  afternoon: { label: 'İkindi (16:00)', sunAngle: 40, ambient: 24, road: 30 },
+  sunset: { label: 'Gün Batımı (18:30)', sunAngle: 72, ambient: 20, road: 25 },
+  night: { label: 'Gece (22:30 - CSP)', sunAngle: 112, ambient: 16, road: 20 },
+};
+
+export const WEATHER_PRESETS: Array<{ id: string; label: string; graphics: string; ambientDelta: number; roadDelta: number }> = [
+  { id: '3_clear', label: 'Açık & Güneşli', graphics: '3_clear', ambientDelta: 0, roadDelta: 0 },
+  { id: '4_mid_clear', label: 'Az Bulutlu', graphics: '4_mid_clear', ambientDelta: -1, roadDelta: -2 },
+  { id: '5_light_clouds', label: 'Parçalı Bulutlu', graphics: '5_light_clouds', ambientDelta: -2, roadDelta: -4 },
+  { id: '6_mid_clouds', label: 'Bulutlu', graphics: '6_mid_clouds', ambientDelta: -3, roadDelta: -6 },
+  { id: '7_heavy_clouds', label: 'Kapalı / Yağmura Hazır', graphics: '7_heavy_clouds', ambientDelta: -5, roadDelta: -8 },
+  { id: '2_light_fog', label: 'Hafif Sisli', graphics: '2_light_fog', ambientDelta: -4, roadDelta: -6 },
+  { id: '1_heavy_fog', label: 'Yoğun Sisli', graphics: '1_heavy_fog', ambientDelta: -6, roadDelta: -8 },
+  { id: 'sol_05_rain', label: 'Yağmurlu (CSP / Sol / Pure)', graphics: '3_clear_type=6', ambientDelta: -6, roadDelta: -10 },
+];
+
 export function generateServerCfgIni(params: {
   server: ServerRecord;
   carIds: string[];
@@ -170,6 +203,14 @@ export function generateServerCfgIni(params: {
   const playerSlots = Math.max(1, server.max_clients || 16);
   const aiSlots = getAiSlotCount(server, trafficConfig);
   const totalMaxClients = playerSlots + aiSlots;
+  const timePreset = TIME_OF_DAY_PRESETS[server.time_of_day || 'noon'] || TIME_OF_DAY_PRESETS.noon;
+  const weatherPreset =
+    WEATHER_PRESETS.find((w) => w.id === server.weather_preset) || WEATHER_PRESETS[0];
+  const baseAmbient = Math.max(8, timePreset.ambient + weatherPreset.ambientDelta);
+  const baseRoad = Math.max(10, timePreset.road + weatherPreset.roadDelta);
+  const timeMultiplier = Number.isFinite(server.time_multiplier) && server.time_multiplier >= 0
+    ? server.time_multiplier
+    : 1;
 
   const lines: string[] = [
     '[SERVER]',
@@ -177,7 +218,7 @@ export function generateServerCfgIni(params: {
     `CARS=${carsList}`,
     `CONFIG_TRACK=${server.track_config || ''}`,
     `TRACK=${trackId}`,
-    `SUN_ANGLE=48`,
+    `SUN_ANGLE=${timePreset.sunAngle}`,
     `PASSWORD=${server.password || ''}`,
     `ADMIN_PASSWORD=${server.admin_password || 'admin123'}`,
     `UDP_PORT=${server.udp_port}`,
@@ -219,7 +260,7 @@ export function generateServerCfgIni(params: {
     `WELCOME_MESSAGE=cfg/welcome.txt`,
     `START_RULE=0`,
     `RACE_GAS_PENALTY_DISABLED=1`,
-    `TIME_OF_DAY_MULTIPLIER=1`,
+    `TIME_OF_DAY_MULTIPLIER=${timeMultiplier}`,
     `RESULT_SCREEN_TIME=60`,
     `MAX_CONTACTS_PER_KM=-1`,
     `DISABLE_DRIFT_MODE=${tpl.sessionType === 'drift' ? 0 : 1}`,
@@ -263,9 +304,9 @@ export function generateServerCfgIni(params: {
     'LAP_GAIN=10',
     '',
     '[WEATHER_0]',
-    'GRAPHICS=3_clear',
-    'BASE_TEMPERATURE_AMBIENT=24',
-    'BASE_TEMPERATURE_ROAD=30',
+    `GRAPHICS=${weatherPreset.graphics}`,
+    `BASE_TEMPERATURE_AMBIENT=${baseAmbient}`,
+    `BASE_TEMPERATURE_ROAD=${baseRoad}`,
     'VARIATION_AMBIENT=2',
     'VARIATION_ROAD=2',
     'WIND_BASE_SPEED_MIN=2',
@@ -386,11 +427,19 @@ export function generateExtraCfgYml(params: {
   };
 
   if (server.traffic_enabled) {
+    const tCfg = { ...DEFAULT_TRAFFIC_CONFIG, ...params.trafficConfig };
     baseConfig.AiParams = {
+      MaxSpeedKph: tCfg.maxSpeedKmh || 90,
+      RightLaneOffsetKph: tCfg.rightLaneOffsetKph ?? 0,
+      MaxSpeedVariationPercent: 0.15,
+      LaneWidthMeters: tCfg.laneWidthMeters ?? 3,
       PlayerRadiusMeters: 500,
       PlayerPositionOffsetMeters: 100,
-      MinAiSafetyDistanceMeters: 15,
-      MaxAiSafetyDistanceMeters: 50,
+      MaxPlayerDistanceToAiSplineMeters: tCfg.maxPlayerDistanceMeters ?? 20,
+      MinAiSafetyDistanceMeters: tCfg.minSafetyDistanceMeters ?? 6,
+      MaxAiSafetyDistanceMeters: tCfg.maxSafetyDistanceMeters ?? 18,
+      StateSpawnDistanceMeters: tCfg.stateSpawnDistanceMeters ?? 150,
+      TwoWayTraffic: Boolean(tCfg.twoWayTraffic),
     };
   }
 

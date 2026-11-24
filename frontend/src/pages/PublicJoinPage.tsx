@@ -70,7 +70,18 @@ export default function PublicJoinPage() {
   return (
     <div className="min-h-screen bg-[#090d14] text-slate-100">
       {/* Top Hero */}
-      <div className="border-b border-slate-800/80 bg-gradient-to-b from-[#131b2b] to-[#090d14]">
+      <div
+        className="border-b border-slate-800/80 bg-gradient-to-b from-[#131b2b] to-[#090d14] relative overflow-hidden"
+        style={
+          server.bannerUrl
+            ? {
+                backgroundImage: `linear-gradient(to bottom, rgba(9,13,20,0.72), rgba(9,13,20,0.96)), url(${server.bannerUrl})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+              }
+            : undefined
+        }
+      >
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
           <div className="flex flex-wrap items-center gap-2.5 mb-3">
             <span
@@ -156,6 +167,22 @@ export default function PublicJoinPage() {
 
       {/* Main Content */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+        {/* Custom Server Rules */}
+        {server.rules && server.rules.trim().length > 0 && (
+          <section className="panel-card p-5 border-amber-500/30 bg-amber-950/10">
+            <h2 className="text-sm font-bold text-amber-300 mb-2">Sunucu Kuralları</h2>
+            <ul className="space-y-1 text-xs sm:text-sm text-slate-200 list-disc pl-5">
+              {server.rules
+                .split(/\r?\n/)
+                .map((r) => r.trim())
+                .filter(Boolean)
+                .map((rule, idx) => (
+                  <li key={idx}>{rule}</li>
+                ))}
+            </ul>
+          </section>
+        )}
+
         {/* All-in-One Bundle Banner */}
         {bundle.available && (
           <div className="rounded-2xl bg-gradient-to-r from-emerald-950/60 via-[#0f1a24] to-[#0f1520] border border-emerald-500/30 p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -409,10 +436,20 @@ export default function PublicJoinPage() {
         )}
 
         {/* Quick Install Guide */}
-        <section className="panel-card p-6">
-          <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
-            <ExternalLink className="w-4 h-4 text-red-400" /> 3 Adımda Sorunsuz Kurulum &amp; Bağlanma
-          </h3>
+        <section className="panel-card p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <ExternalLink className="w-4 h-4 text-red-400" /> 3 Adımda Sorunsuz Kurulum &amp; Bağlanma
+            </h3>
+            <a
+              href="https://acstuff.club/app/"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-sky-400 hover:text-sky-300 inline-flex items-center gap-1"
+            >
+              Content Manager yüklü değil mi? Buradan indirin <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
           <ol className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-slate-300">
             <li className="p-3.5 rounded-xl bg-[#090d14] border border-slate-800">
               <div className="font-bold text-white mb-1">1. Modları İndirin</div>

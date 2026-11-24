@@ -1,4 +1,4 @@
-import { AlertTriangle, Boxes, Car, Cpu, MapPin, Shield, Sparkles, Wand2, X } from 'lucide-react';
+import { AlertTriangle, Boxes, Car, CloudSun, Cpu, MapPin, Shield, Sparkles, Wand2, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   apiFetch,
@@ -51,9 +51,27 @@ export default function ServerFormModal({
   );
   const [maxAiCount, setMaxAiCount] = useState(initialServer?.traffic_config?.maxAiCount || 50);
   const [maxAiPerPlayer, setMaxAiPerPlayer] = useState(
-    initialServer?.traffic_config?.maxAiPerPlayer || 6
+    initialServer?.traffic_config?.maxAiPerPlayer || 8
   );
-  const [maxSpeedKmh, setMaxSpeedKmh] = useState(initialServer?.traffic_config?.maxSpeedKmh || 110);
+  const [maxSpeedKmh, setMaxSpeedKmh] = useState(initialServer?.traffic_config?.maxSpeedKmh || 90);
+  const [rightLaneOffsetKph, setRightLaneOffsetKph] = useState(
+    initialServer?.traffic_config?.rightLaneOffsetKph ?? 0
+  );
+  const [laneWidthMeters, setLaneWidthMeters] = useState(
+    initialServer?.traffic_config?.laneWidthMeters ?? 3
+  );
+  const [maxPlayerDistanceMeters, setMaxPlayerDistanceMeters] = useState(
+    initialServer?.traffic_config?.maxPlayerDistanceMeters ?? 20
+  );
+  const [minSafetyDistanceMeters, setMinSafetyDistanceMeters] = useState(
+    initialServer?.traffic_config?.minSafetyDistanceMeters ?? 6
+  );
+  const [maxSafetyDistanceMeters, setMaxSafetyDistanceMeters] = useState(
+    initialServer?.traffic_config?.maxSafetyDistanceMeters ?? 18
+  );
+  const [twoWayTraffic, setTwoWayTraffic] = useState(
+    Boolean(initialServer?.traffic_config?.twoWayTraffic)
+  );
   const [welcomeMessage, setWelcomeMessage] = useState(
     initialServer?.traffic_config?.welcomeMessage || ''
   );
@@ -65,6 +83,28 @@ export default function ServerFormModal({
   );
   const [trafficCarSearch, setTrafficCarSearch] = useState('');
   const [description, setDescription] = useState(initialServer?.description || '');
+  const [rulesText, setRulesText] = useState(initialServer?.rules_text || '');
+  const [bannerUrl, setBannerUrl] = useState(initialServer?.banner_url || '');
+  const [weatherPreset, setWeatherPreset] = useState(initialServer?.weather_preset || '3_clear');
+  const [timeOfDay, setTimeOfDay] = useState(initialServer?.time_of_day || 'noon');
+  const [timeMultiplier, setTimeMultiplier] = useState(initialServer?.time_multiplier ?? 1);
+  const [weatherOptions, setWeatherOptions] = useState<Array<{ id: string; label: string }>>([
+    { id: '3_clear', label: 'Açık & Güneşli' },
+    { id: '4_mid_clear', label: 'Az Bulutlu' },
+    { id: '5_light_clouds', label: 'Parçalı Bulutlu' },
+    { id: '6_mid_clouds', label: 'Bulutlu' },
+    { id: '7_heavy_clouds', label: 'Kapalı' },
+    { id: '2_light_fog', label: 'Hafif Sisli' },
+    { id: '1_heavy_fog', label: 'Yoğun Sisli' },
+    { id: 'sol_05_rain', label: 'Yağmurlu (CSP / Sol / Pure)' },
+  ]);
+  const [timeOptions, setTimeOptions] = useState<Array<{ id: string; label: string }>>([
+    { id: 'morning', label: 'Sabah (09:00)' },
+    { id: 'noon', label: 'Öğle (13:00)' },
+    { id: 'afternoon', label: 'İkindi (16:00)' },
+    { id: 'sunset', label: 'Gün Batımı (18:30)' },
+    { id: 'night', label: 'Gece (22:30 - CSP)' },
+  ]);
   const [cmAutodownload, setCmAutodownload] = useState(
     initialServer ? initialServer.cm_autodownload : true
   );
@@ -82,7 +122,11 @@ export default function ServerFormModal({
 
   useEffect(() => {
     Promise.all([
-      apiFetch<{ templates: ServerTemplate[] }>('/api/servers/templates'),
+      apiFetch<{
+        templates: ServerTemplate[];
+        weatherPresets?: Array<{ id: string; label: string }>;
+        timePresets?: Array<{ id: string; label: string }>;
+      }>('/api/servers/templates'),
       apiFetch<{ cars: CarItem[] }>('/api/content/cars'),
       apiFetch<{ tracks: TrackItem[] }>('/api/content/tracks'),
       apiFetch<{ packs: PackItem[] }>('/api/packs'),
@@ -94,6 +138,8 @@ export default function ServerFormModal({
     ])
       .then(([tplRes, carRes, trackRes, packRes, portsRes]) => {
         setTemplates(tplRes.templates);
+        if (tplRes.weatherPresets) setWeatherOptions(tplRes.weatherPresets);
+        if (tplRes.timePresets) setTimeOptions(tplRes.timePresets);
         setCars(carRes.cars);
         setTracks(trackRes.tracks);
         setPacks(packRes.packs);
@@ -176,14 +222,26 @@ export default function ServerFormModal({
           maxAiCount: Number(maxAiCount),
           maxAiPerPlayer: Number(maxAiPerPlayer),
           maxSpeedKmh: Number(maxSpeedKmh),
-          aiDensity: 20,
-          rightLaneOffset: 0.5,
+          aiDensity: 25,
+          rightLaneOffset: 0,
+          rightLaneOffsetKph: Number(rightLaneOffsetKph),
+          laneWidthMeters: Number(laneWidthMeters),
+          maxPlayerDistanceMeters: Number(maxPlayerDistanceMeters),
+          minSafetyDistanceMeters: Number(minSafetyDistanceMeters),
+          maxSafetyDistanceMeters: Number(maxSafetyDistanceMeters),
+          stateSpawnDistanceMeters: 150,
+          twoWayTraffic,
           trafficCars: trafficCarIds,
           trafficPackIds,
           welcomeMessage,
         },
         template,
         description,
+        rules_text: rulesText,
+        banner_url: bannerUrl.trim(),
+        weather_preset: weatherPreset,
+        time_of_day: timeOfDay,
+        time_multiplier: Number(timeMultiplier),
         cm_autodownload: cmAutodownload,
         register_to_lobby: registerToLobby,
         memory_limit_mb: Number(memoryLimitMb),
@@ -683,6 +741,83 @@ export default function ServerFormModal({
                       className="panel-input"
                     />
                   </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Sağ Şerit Hız Farkı (km/h, 0 = Eşit)
+                    </label>
+                    <input
+                      type="number"
+                      min={-60}
+                      max={60}
+                      value={rightLaneOffsetKph}
+                      onChange={(e) => setRightLaneOffsetKph(Number(e.target.value))}
+                      className="panel-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Şerit Genişliği (LaneWidth, m)
+                    </label>
+                    <input
+                      type="number"
+                      step={0.5}
+                      min={2}
+                      max={6}
+                      value={laneWidthMeters}
+                      onChange={(e) => setLaneWidthMeters(Number(e.target.value))}
+                      className="panel-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Oyuncu-Spline Mesafesi (m)
+                    </label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={80}
+                      value={maxPlayerDistanceMeters}
+                      onChange={(e) => setMaxPlayerDistanceMeters(Number(e.target.value))}
+                      className="panel-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Min Araç Mesafesi (m)
+                    </label>
+                    <input
+                      type="number"
+                      min={3}
+                      max={50}
+                      value={minSafetyDistanceMeters}
+                      onChange={(e) => setMinSafetyDistanceMeters(Number(e.target.value))}
+                      className="panel-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Maks Araç Mesafesi (m)
+                    </label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={80}
+                      value={maxSafetyDistanceMeters}
+                      onChange={(e) => setMaxSafetyDistanceMeters(Number(e.target.value))}
+                      className="panel-input"
+                    />
+                  </div>
+                  <div className="flex items-end pb-2">
+                    <label className="inline-flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={twoWayTraffic}
+                        onChange={(e) => setTwoWayTraffic(e.target.checked)}
+                        className="w-4 h-4 accent-amber-500"
+                      />
+                      Çift Yönlü Trafik (TwoWayTraffic)
+                    </label>
+                  </div>
                   <div className="sm:col-span-3">
                     <label className="block text-xs text-slate-400 mb-1">Karşılama Mesajı</label>
                     <input
@@ -817,7 +952,58 @@ export default function ServerFormModal({
             </div>
           )}
 
-          {/* Description & Options */}
+          {/* Weather & Time of Day */}
+          <div className="p-4 rounded-xl bg-[#090d14] border border-slate-800 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-white">
+              <CloudSun className="w-4 h-4 text-sky-400" /> Hava Durumu &amp; Saat Ayarları
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Saat / Gündüz-Gece</label>
+                <select
+                  value={timeOfDay}
+                  onChange={(e) => setTimeOfDay(e.target.value)}
+                  className="panel-input"
+                >
+                  {timeOptions.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Hava Durumu</label>
+                <select
+                  value={weatherPreset}
+                  onChange={(e) => setWeatherPreset(e.target.value)}
+                  className="panel-input"
+                >
+                  {weatherOptions.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">
+                  Zaman Akış Hızı (0 = Sabit, 1 = Normal)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={60}
+                  step={1}
+                  value={timeMultiplier}
+                  onChange={(e) => setTimeMultiplier(Number(e.target.value))}
+                  className="panel-input"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Description, Join Page Customization & RAM */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">
@@ -829,6 +1015,32 @@ export default function ServerFormModal({
                 onChange={(e) => setDescription(e.target.value)}
                 className="panel-input"
                 placeholder="Örn: Hafta sonu Shutoko trafik buluşması"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Davet Sayfası Banner / Logo URL (Opsiyonel)
+              </label>
+              <input
+                type="url"
+                value={bannerUrl}
+                onChange={(e) => setBannerUrl(e.target.value)}
+                className="panel-input"
+                placeholder="https://ornek.com/sunucu-banner.jpg"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                Sunucu Kuralları (Her satıra 1 kural — Davet sayfasında görünür)
+              </label>
+              <textarea
+                rows={3}
+                value={rulesText}
+                onChange={(e) => setRulesText(e.target.value)}
+                className="panel-input text-xs"
+                placeholder={"Ters yöne girmek yasak\nKasıtlı çarpma yasak\nSaygılı sürüş"}
               />
             </div>
 

@@ -1,24 +1,56 @@
 import {
   ArrowLeft,
   Check,
+  CheckCircle2,
   Copy,
   ExternalLink,
   FileCode2,
   Link2,
   PackageCheck,
   Play,
+  Puzzle,
+  Radar,
   RotateCw,
   Save,
   Settings,
   Shield,
+  ShieldAlert,
   Square,
   Terminal,
+  Trash2,
+  Upload,
   Users,
+  XCircle,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import ServerFormModal from '../components/ServerFormModal';
-import { apiFetch, copyToClipboard, formatBytes, getToken, type ServerItem } from '../lib/api';
+import {
+  apiFetch,
+  copyToClipboard,
+  formatBytes,
+  getToken,
+  uploadWithProgress,
+  type ServerItem,
+} from '../lib/api';
+
+interface PortTestResult {
+  publicIp: string;
+  httpPort: number;
+  tcpPort: number;
+  udpPort: number;
+  localHttp: boolean;
+  localTcp: boolean;
+  publicHttp: boolean;
+  publicTcp: boolean;
+}
+
+interface PluginEntry {
+  name: string;
+  isDirectory: boolean;
+  size: number;
+  modifiedAt: string;
+}
 
 const CONFIG_TABS = [
   'server_cfg.ini',
@@ -30,7 +62,7 @@ const CONFIG_TABS = [
 export default function ServerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [server, setServer] = useState<ServerItem | null>(null);
-  const [tab, setTab] = useState<'console' | 'files' | 'players'>('console');
+  const [tab, setTab] = useState<'console' | 'files' | 'players' | 'lists' | 'plugins'>('console');
   const [files, setFiles] = useState<Record<string, string>>({});
   const [activeFile, setActiveFile] = useState<(typeof CONFIG_TABS)[number]>('server_cfg.ini');
   const [logs, setLogs] = useState('');
@@ -39,16 +71,39 @@ export default function ServerDetailPage() {
   const [rebuildingBundle, setRebuildingBundle] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Port Test
+  const [testingPorts, setTestingPorts] = useState(false);
+  const [portResult, setPortResult] = useState<PortTestResult | null>(null);
+
+  // Admin / Whitelist / Blacklist
+  const [adminsTxt, setAdminsTxt] = useState('');
+  const [whitelistTxt, setWhitelistTxt] = useState('');
+  const [blacklistTxt, setBlacklistTxt] = useState('');
+  const [savingLists, setSavingLists] = useState(false);
+
+  // Plugins
+  const [plugins, setPlugins] = useState<PluginEntry[]>([]);
+  const [pluginFile, setPluginFile] = useState<File | null>(null);
+  const [uploadingPlugin, setUploadingPlugin] = useState(false);
+  const [pluginProgress, setPluginProgress] = useState(0);
+
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
   const load = async () => {
     if (!id) return;
-    const [srvRes, filesRes] = await Promise.all([
+    const [srvRes, filesRes, listsRes, pluginsRes] = await Promise.all([
       apiFetch<{ server: ServerItem }>(`/api/servers/${id}`),
       apiFetch<{ files: Record<string, string> }>(`/api/servers/${id}/files`),
+      apiFetch<{ admins: string; whitelist: string; blacklist: string }>(`/api/servers/${id}/lists`),
+      apiFetch<{ plugins: PluginEntry[] }>(`/api/servers/${id}/plugins`),
     ]);
     setServer(srvRes.server);
     setFiles(filesRes.files);
+    setAdminsTxt(listsRes.admins);
+    setWhitelistTxt(listsRes.whitelist);
+    setBlacklistTxt(listsRes.blacklist);
+    setPlugins(pluginsRes.plugins);
   };
 
   useEffect(() => {
@@ -148,6 +203,70 @@ export default function ServerDetailPage() {
     await copyToClipboard(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const runPortTest = async () => {
+    if (!id) return;
+    setTestingPorts(true);
+    try {
+      const res = await apiFetch<PortTestResult>(`/api/servers/${id}/test-ports`, {
+        method: 'POST',
+      });
+      setPortResult(res);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Port testi başarısız.');
+    } finally {
+      setTestingPorts(false);
+    }
+  };
+
+  const saveLists = async () => {
+    if (!id) return;
+    setSavingLists(true);
+    try {
+      const res = await apiFetch<{ message: string }>(`/api/servers/${id}/lists`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          admins: adminsTxt,
+          whitelist: whitelistTxt,
+          blacklist: blacklistTxt,
+        }),
+      });
+      alert(res.message);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Listeler kaydedilemedi.');
+    } finally {
+      setSavingLists(false);
+    }
+  };
+
+  const handlePluginUpload = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!id || !pluginFile) return;
+    setUploadingPlugin(true);
+    setPluginProgress(0);
+    try {
+      const fd = new FormData();
+      fd.append('file', pluginFile);
+      const res = await uploadWithProgress<{ message: string }>(
+        `/api/servers/${id}/plugins/upload`,
+        fd,
+        setPluginProgress
+      );
+      alert(res.message);
+      setPluginFile(null);
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Plugin yüklenemedi.');
+    } finally {
+      setUploadingPlugin(false);
+    }
+  };
+
+  const deletePlugin = async (name: string) => {
+    if (!id || !confirm(`"${name}" eklentisi silinecek. Emin misiniz?`)) return;
+    await apiFetch(`/api/servers/${id}/plugins/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    await load();
   };
 
   if (!server) {
@@ -308,9 +427,20 @@ export default function ServerDetailPage() {
         </div>
 
         <div className="panel-card p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-            <Shield className="w-4 h-4 text-amber-400" /> Portlar &amp; VDS Güvenlik Duvarı (UFW)
-          </h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Shield className="w-4 h-4 text-amber-400" /> Portlar &amp; VDS Güvenlik Duvarı (UFW)
+            </h2>
+            <button
+              type="button"
+              disabled={testingPorts}
+              onClick={runPortTest}
+              className="btn-secondary text-xs py-1.5 px-2.5"
+            >
+              <Radar className="w-3.5 h-3.5 text-sky-400" />
+              {testingPorts ? 'Test Ediliyor...' : 'Portları Test Et'}
+            </button>
+          </div>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="p-2.5 rounded-lg bg-[#090d14] border border-slate-800">
               <div className="text-[11px] text-slate-400">UDP Port</div>
@@ -325,6 +455,43 @@ export default function ServerDetailPage() {
               <div className="font-mono font-bold text-white">{server.http_port}</div>
             </div>
           </div>
+
+          {portResult && (
+            <div className="grid grid-cols-2 gap-2 text-[11px] p-2.5 rounded-lg bg-[#090d14] border border-slate-800">
+              <div className="flex items-center gap-1.5">
+                {portResult.localHttp ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                )}
+                <span>Yerel HTTP ({portResult.httpPort})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {portResult.publicHttp ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                )}
+                <span>Dış HTTP ({portResult.publicIp}:{portResult.httpPort})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {portResult.localTcp ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                )}
+                <span>Yerel TCP ({portResult.tcpPort})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {portResult.publicTcp ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                ) : (
+                  <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                )}
+                <span>Dış TCP ({portResult.publicIp}:{portResult.tcpPort})</span>
+              </div>
+            </div>
+          )}
 
           <div className="p-2.5 rounded-lg bg-[#090d14] border border-slate-800 flex items-center justify-between gap-2">
             <code className="text-[11px] text-emerald-400 font-mono truncate">
@@ -382,6 +549,28 @@ export default function ServerDetailPage() {
           >
             <Users className="w-4 h-4" /> Canlı Oyuncular ({server.live.clients ?? 0})
           </button>
+          <button
+            onClick={() => setTab('lists')}
+            className={`px-5 py-3 text-sm font-medium inline-flex items-center gap-2 border-b-2 transition ${
+              tab === 'lists'
+                ? 'border-red-500 text-white'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <ShieldAlert className="w-4 h-4" /> Admin / Whitelist / Ban
+          </button>
+          {server.engine === 'assettoserver' && (
+            <button
+              onClick={() => setTab('plugins')}
+              className={`px-5 py-3 text-sm font-medium inline-flex items-center gap-2 border-b-2 transition ${
+                tab === 'plugins'
+                  ? 'border-red-500 text-white'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Puzzle className="w-4 h-4" /> Pluginler ({plugins.length})
+            </button>
+          )}
         </div>
 
         {tab === 'console' && (
@@ -445,6 +634,114 @@ export default function ServerDetailPage() {
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
                       Bağlı
                     </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'lists' && (
+          <div className="p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-slate-400">
+                Her satıra bir <strong>Steam64 ID</strong> yazın (örn. <code>76561198801003518</code>
+                ). AssettoServer değişiklikleri sunucuyu kapatmadan canlı uygular.
+              </p>
+              <button disabled={savingLists} onClick={saveLists} className="btn-primary text-xs py-1.5">
+                <Save className="w-3.5 h-3.5" /> {savingLists ? 'Kaydediliyor...' : 'Listeleri Kaydet'}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-emerald-300 mb-1.5">
+                  Adminler (admins.txt)
+                </label>
+                <textarea
+                  rows={8}
+                  value={adminsTxt}
+                  onChange={(e) => setAdminsTxt(e.target.value)}
+                  className="panel-input font-mono text-xs"
+                  placeholder="76561198000000000"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-sky-300 mb-1.5">
+                  Whitelist (whitelist.txt)
+                </label>
+                <textarea
+                  rows={8}
+                  value={whitelistTxt}
+                  onChange={(e) => setWhitelistTxt(e.target.value)}
+                  className="panel-input font-mono text-xs"
+                  placeholder="Boş = Herkes girebilir"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-red-300 mb-1.5">
+                  Banlı Oyuncular (blacklist.txt)
+                </label>
+                <textarea
+                  rows={8}
+                  value={blacklistTxt}
+                  onChange={(e) => setBlacklistTxt(e.target.value)}
+                  className="panel-input font-mono text-xs"
+                  placeholder="Banlanacak Steam64 ID"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === 'plugins' && (
+          <div className="p-5 space-y-4">
+            <form onSubmit={handlePluginUpload} className="flex flex-wrap gap-2 items-center">
+              <label className="flex-1 min-w-[220px] panel-input cursor-pointer text-xs text-slate-300 truncate flex items-center gap-2">
+                <Upload className="w-3.5 h-3.5 shrink-0" />
+                {pluginFile
+                  ? `${pluginFile.name} (${formatBytes(pluginFile.size)})`
+                  : 'AssettoServer Plugin seç (.zip / .7z / .rar / .dll — ör. Overtake, Teleport, Patrol)...'}
+                <input
+                  type="file"
+                  accept=".zip,.7z,.rar,.tar,.gz,.dll,.yml,.json"
+                  className="hidden"
+                  onChange={(e) => setPluginFile(e.target.files?.[0] || null)}
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={!pluginFile || uploadingPlugin}
+                className="btn-primary text-xs shrink-0"
+              >
+                {uploadingPlugin ? `%${pluginProgress}` : 'Plugin Yükle'}
+              </button>
+            </form>
+
+            {plugins.length === 0 ? (
+              <div className="text-sm text-slate-400 py-4">
+                Henüz kurulu AssettoServer plugini yok. Yukarıdan plugin arşivi veya <code>.dll</code>{' '}
+                yükleyip sunucuyu yeniden başlatabilirsiniz.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {plugins.map((pl) => (
+                  <div
+                    key={pl.name}
+                    className="p-3 rounded-xl bg-[#090d14] border border-slate-800 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-white truncate">{pl.name}</div>
+                      <div className="text-[10px] text-slate-400">
+                        {pl.isDirectory ? 'Klasör' : formatBytes(pl.size)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => deletePlugin(pl.name)}
+                      className="p-1.5 rounded bg-slate-800 hover:bg-red-950/60 text-red-400"
+                      title="Sil"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 ))}
               </div>
