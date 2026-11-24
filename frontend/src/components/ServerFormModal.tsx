@@ -57,6 +57,13 @@ export default function ServerFormModal({
   const [welcomeMessage, setWelcomeMessage] = useState(
     initialServer?.traffic_config?.welcomeMessage || ''
   );
+  const [trafficCarIds, setTrafficCarIds] = useState<string[]>(
+    initialServer?.traffic_config?.trafficCars || []
+  );
+  const [trafficPackIds, setTrafficPackIds] = useState<string[]>(
+    initialServer?.traffic_config?.trafficPackIds || []
+  );
+  const [trafficCarSearch, setTrafficCarSearch] = useState('');
   const [description, setDescription] = useState(initialServer?.description || '');
   const [cmAutodownload, setCmAutodownload] = useState(
     initialServer ? initialServer.cm_autodownload : true
@@ -131,6 +138,18 @@ export default function ServerFormModal({
     );
   };
 
+  const toggleTrafficCar = (id: string) => {
+    setTrafficCarIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleTrafficPack = (id: string) => {
+    setTrafficPackIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
@@ -157,7 +176,8 @@ export default function ServerFormModal({
           maxSpeedKmh: Number(maxSpeedKmh),
           aiDensity: 20,
           rightLaneOffset: 0.5,
-          trafficCars: [],
+          trafficCars: trafficCarIds,
+          trafficPackIds,
           welcomeMessage,
         },
         template,
@@ -198,6 +218,13 @@ export default function ServerFormModal({
       c.name.toLowerCase().includes(carSearch.toLowerCase()) ||
       c.id.toLowerCase().includes(carSearch.toLowerCase()) ||
       c.brand.toLowerCase().includes(carSearch.toLowerCase())
+  );
+
+  const filteredTrafficCars = cars.filter(
+    (c) =>
+      c.name.toLowerCase().includes(trafficCarSearch.toLowerCase()) ||
+      c.id.toLowerCase().includes(trafficCarSearch.toLowerCase()) ||
+      c.brand.toLowerCase().includes(trafficCarSearch.toLowerCase())
   );
 
   const ufwPreview = `sudo ufw allow ${udpPort}/udp && sudo ufw allow ${tcpPort}/tcp && sudo ufw allow ${httpPort}/tcp`;
@@ -514,7 +541,7 @@ export default function ServerFormModal({
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <Car className="w-3.5 h-3.5 text-sky-400" />
-                Ek Arabalar Seç ({selectedCarIds.length} seçili)
+                Oyuncu Arabaları Seç ({selectedCarIds.length} seçili)
               </label>
               <input
                 type="text"
@@ -614,6 +641,85 @@ export default function ServerFormModal({
                       className="panel-input"
                       placeholder="Sunucuya hoş geldiniz!"
                     />
+                  </div>
+
+                  {/* Separate AI Traffic Pack & Car Picker */}
+                  <div className="sm:col-span-3 pt-2 border-t border-slate-800/80 space-y-3">
+                    <p className="text-[11px] text-amber-300/90">
+                      Aşağıdan sadece <strong>AI Trafik</strong> olarak yolda dolaşacak Pack veya
+                      arabaları ayrı seçebilirsiniz. Oyuncular garajda bu araçları seçemez ama
+                      davet linkinden otomatik indirebilir. (Boş bırakırsanız yukarıdaki oyuncu
+                      arabaları trafikte kullanılır.)
+                    </p>
+
+                    {packs.length > 0 && (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                          Sadece AI Trafik Pack&apos;i Seç ({trafficPackIds.length} seçili)
+                        </label>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {packs.map((pack) => {
+                            const active = trafficPackIds.includes(pack.id);
+                            return (
+                              <button
+                                key={pack.id}
+                                type="button"
+                                onClick={() => toggleTrafficPack(pack.id)}
+                                className={`p-2.5 rounded-lg border text-left text-xs transition ${
+                                  active
+                                    ? 'bg-amber-600/20 border-amber-500 text-white'
+                                    : 'bg-[#0c111b] border-slate-800 text-slate-300 hover:border-slate-700'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="font-semibold truncate">{pack.name}</span>
+                                  <span className="text-[10px] text-slate-400 shrink-0">
+                                    {pack.car_ids.length} araba
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {cars.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-xs font-semibold text-slate-300">
+                            Sadece AI Trafik Arabaları ({trafficCarIds.length} seçili)
+                          </label>
+                          <input
+                            type="text"
+                            value={trafficCarSearch}
+                            onChange={(e) => setTrafficCarSearch(e.target.value)}
+                            placeholder="Trafik aracı ara..."
+                            className="bg-[#0c111b] border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 w-44"
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-40 overflow-y-auto p-1">
+                          {filteredTrafficCars.map((car) => {
+                            const active = trafficCarIds.includes(car.id);
+                            return (
+                              <button
+                                key={car.id}
+                                type="button"
+                                onClick={() => toggleTrafficCar(car.id)}
+                                className={`px-2.5 py-1.5 rounded-lg border text-left text-xs transition ${
+                                  active
+                                    ? 'bg-amber-600/20 border-amber-500 text-white'
+                                    : 'bg-[#0c111b] border-slate-800 text-slate-300 hover:border-slate-700'
+                                }`}
+                              >
+                                <div className="font-semibold truncate">{car.name}</div>
+                                <div className="text-[10px] text-slate-400 truncate">{car.id}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

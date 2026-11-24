@@ -112,19 +112,23 @@ export function suggestAvailablePorts(db: DatabaseSync): {
 export function resolveServerContent(db: DatabaseSync, server: ServerRecord) {
   const directCarIds = safeJsonParse<string[]>(server.car_ids_json, []);
   const packIds = safeJsonParse<string[]>(server.pack_ids_json, []);
+  const trafficCfg = safeJsonParse<Partial<TrafficConfig>>(server.traffic_config_json, {});
 
-  const packs: PackRecord[] = [];
-  const mergedCarIds = new Set<string>(directCarIds);
+  const packsMap = new Map<string, PackRecord>();
+  const playerCarIdsSet = new Set<string>(directCarIds);
+  const trafficCarIdsSet = new Set<string>();
   let packTrackFallback = '';
   const extraYmlParts: string[] = [];
   const cspParts: string[] = [];
 
   for (const pid of packIds) {
-    const pack = db.prepare('SELECT * FROM packs WHERE id = ?').get(pid) as PackRecord | undefined;
+    const pack = db.prepare('SELECT * FROM packs WHERE id = ?').get(pid) as unknown as
+      | PackRecord
+      | undefined;
     if (!pack) continue;
-    packs.push(pack);
+    packsMap.set(pack.id, pack);
     for (const cid of safeJsonParse<string[]>(pack.car_ids_json, [])) {
-      mergedCarIds.add(cid);
+      playerCarIdsSet.add(cid);
     }
     const pTracks = safeJsonParse<string[]>(pack.track_ids_json, []);
     if (!packTrackFallback && pTracks.length > 0) {
@@ -138,27 +142,67 @@ export function resolveServerContent(db: DatabaseSync, server: ServerRecord) {
     }
   }
 
+  // Resolve separate AI traffic cars & traffic packs (AssettoServer only)
+  if (server.engine === 'assettoserver' && server.traffic_enabled) {
+    for (const cid of trafficCfg.trafficCars || []) {
+      trafficCarIdsSet.add(cid);
+    }
+    for (const tpid of trafficCfg.trafficPackIds || []) {
+      const pack = db.prepare('SELECT * FROM packs WHERE id = ?').get(tpid) as unknown as
+        | PackRecord
+        | undefined;
+      if (!pack) continue;
+      packsMap.set(pack.id, pack);
+      for (const cid of safeJsonParse<string[]>(pack.car_ids_json, [])) {
+        trafficCarIdsSet.add(cid);
+      }
+      if (pack.extra_cfg_yml.trim()) {
+        extraYmlParts.push(pack.extra_cfg_yml.trim());
+      }
+      if (pack.csp_extra_options.trim()) {
+        cspParts.push(pack.csp_extra_options.trim());
+      }
+    }
+  }
+
+  const allCarIdsSet = new Set<string>([...playerCarIdsSet, ...trafficCarIdsSet]);
+  const trafficOnlyCarIds = new Set<string>(
+    Array.from(trafficCarIdsSet).filter((cid) => !playerCarIdsSet.has(cid))
+  );
+
   const effectiveTrackId = server.track_id || packTrackFallback;
   const track = effectiveTrackId
-    ? ((db.prepare('SELECT * FROM tracks WHERE id = ?').get(effectiveTrackId) as
+    ? ((db.prepare('SELECT * FROM tracks WHERE id = ?').get(effectiveTrackId) as unknown as
         | TrackRecord
         | undefined) ?? null)
     : null;
 
-  const cars: CarRecord[] = [];
-  for (const cid of mergedCarIds) {
-    const car = db.prepare('SELECT * FROM cars WHERE id = ?').get(cid) as CarRecord | undefined;
-    if (car) {
-      cars.push(car);
+  const lookupCars = (ids: Iterable<string>): CarRecord[] => {
+    const out: CarRecord[] = [];
+    for (const cid of ids) {
+      const car = db.prepare('SELECT * FROM cars WHERE id = ?').get(cid) as unknown as
+        | CarRecord
+        | undefined;
+      if (car) out.push(car);
     }
-  }
+    return out;
+  };
+
+  const playerCars = lookupCars(playerCarIdsSet);
+  const trafficCars = lookupCars(trafficCarIdsSet);
+  const allCars = lookupCars(allCarIdsSet);
 
   return {
-    packs,
+    packs: Array.from(packsMap.values()),
     track,
     effectiveTrackId,
-    cars,
-    carIds: Array.from(mergedCarIds),
+    cars: allCars,
+    playerCars,
+    trafficCars,
+    carIds: Array.from(allCarIdsSet),
+    playerCarIds: Array.from(playerCarIdsSet),
+    trafficCarIds: Array.from(trafficCarIdsSet),
+    trafficOnlyCarIds,
     packExtraYml: extraYmlParts.join('\n'),
     packCspExtra: cspParts.join('\n'),
   };
@@ -179,6 +223,7 @@ export function writeServerConfigFiles(db: DatabaseSync, server: ServerRecord): 
     maxSpeedKmh: 110,
     rightLaneOffset: 0.5,
     trafficCars: [],
+    trafficPackIds: [],
   });
 
   const serverCfg = generateServerCfgIni({
@@ -190,7 +235,8 @@ export function writeServerConfigFiles(db: DatabaseSync, server: ServerRecord): 
 
   const entryList = generateEntryListIni({
     server,
-    cars: resolved.cars,
+    cars: resolved.playerCars.length > 0 ? resolved.playerCars : resolved.cars,
+    trafficCars: resolved.trafficCars,
     trafficConfig: trafficCfg,
   });
 

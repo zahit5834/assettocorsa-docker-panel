@@ -305,9 +305,16 @@ export default function PublicJoinPage() {
                           <h3 className="font-bold text-white text-sm group-hover:text-red-300 transition">
                             {car.name}
                           </h3>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 shrink-0">
-                            v{car.version}
-                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {car.isTrafficOnly && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                AI Trafik
+                              </span>
+                            )}
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                              v{car.version}
+                            </span>
+                          </div>
                         </div>
                         <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
                           {car.id}

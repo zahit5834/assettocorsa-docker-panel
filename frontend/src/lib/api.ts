@@ -87,6 +87,7 @@ export interface ServerItem {
     maxSpeedKmh: number;
     rightLaneOffset: number;
     trafficCars: string[];
+    trafficPackIds?: string[];
     welcomeMessage?: string;
   };
   template: string;
@@ -207,6 +208,7 @@ export interface PublicJoinPayload {
     carClass: string;
     skinsCount: number;
     is_kunos: boolean;
+    isTrafficOnly?: boolean;
     version: string;
     sha256: string;
     downloadSize: number;

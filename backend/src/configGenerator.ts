@@ -92,6 +92,7 @@ export interface TrafficConfig {
   maxSpeedKmh: number;
   rightLaneOffset: number;
   trafficCars: string[];
+  trafficPackIds?: string[];
   welcomeMessage?: string;
 }
 
@@ -102,6 +103,7 @@ export const DEFAULT_TRAFFIC_CONFIG: TrafficConfig = {
   maxSpeedKmh: 110,
   rightLaneOffset: 0.5,
   trafficCars: [],
+  trafficPackIds: [],
   welcomeMessage: 'Sunucuya hoş geldiniz! Keyifli sürüşler.',
 };
 
@@ -268,9 +270,10 @@ export function generateServerCfgIni(params: {
 export function generateEntryListIni(params: {
   server: ServerRecord;
   cars: CarRecord[];
+  trafficCars?: CarRecord[];
   trafficConfig?: TrafficConfig;
 }): string {
-  const { server, cars, trafficConfig } = params;
+  const { server, cars, trafficCars, trafficConfig } = params;
   const maxSlots = Math.max(1, server.max_clients || 16);
   const effectiveCars =
     cars.length > 0
@@ -285,7 +288,7 @@ export function generateEntryListIni(params: {
   const blocks: string[] = [];
   let idx = 0;
 
-  // Player slots distributed evenly across selected cars & available skins
+  // Player slots distributed evenly across player cars & available skins
   for (let i = 0; i < maxSlots; i++) {
     const car = effectiveCars[i % effectiveCars.length];
     const skins = safeJsonParse<string[]>(car.skins_json, []);
@@ -307,18 +310,21 @@ export function generateEntryListIni(params: {
     idx++;
   }
 
-  // AssettoServer AI traffic slots
+  // AssettoServer AI traffic slots (separate traffic pool if provided, otherwise fallback to player cars)
   if (server.engine === 'assettoserver' && server.traffic_enabled) {
     const tCfg = { ...DEFAULT_TRAFFIC_CONFIG, ...trafficConfig };
-    const aiPool =
-      tCfg.trafficCars && tCfg.trafficCars.length > 0
-        ? tCfg.trafficCars
-        : effectiveCars.map((c) => c.id);
-    const aiSlotCount = Math.min(Math.max(4, tCfg.maxAiCount || 20), 80);
+    const allCarRecords = [...effectiveCars, ...(trafficCars || [])];
+    const aiPool: string[] =
+      trafficCars && trafficCars.length > 0
+        ? trafficCars.map((c) => c.id)
+        : tCfg.trafficCars && tCfg.trafficCars.length > 0
+          ? tCfg.trafficCars
+          : effectiveCars.map((c) => c.id);
+    const aiSlotCount = Math.min(Math.max(4, tCfg.maxAiCount || 20), 120);
 
     for (let j = 0; j < aiSlotCount; j++) {
       const modelId = aiPool[j % aiPool.length];
-      const matchedCar = effectiveCars.find((c) => c.id === modelId);
+      const matchedCar = allCarRecords.find((c) => c.id === modelId);
       const skins = matchedCar ? safeJsonParse<string[]>(matchedCar.skins_json, []) : [];
       const skin = skins.length > 0 ? skins[j % skins.length] : '';
       blocks.push(

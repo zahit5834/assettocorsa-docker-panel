@@ -108,6 +108,7 @@ export async function publicRoutes(app: FastifyInstance) {
       specs: safeJsonParse<Record<string, unknown>>(c.specs_json, {}),
       skinsCount: safeJsonParse<string[]>(c.skins_json, []).length,
       is_kunos: Boolean(c.is_kunos),
+      isTrafficOnly: resolved.trafficOnlyCarIds.has(c.id),
       version: c.version,
       sha256: c.sha256 ? c.sha256.slice(0, 12) : '',
       downloadSize: c.download_size,

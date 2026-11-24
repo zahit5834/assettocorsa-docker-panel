@@ -33,6 +33,7 @@ const trafficSchema = z
     maxSpeedKmh: z.number().int().min(30).max(320).default(110),
     rightLaneOffset: z.number().min(-2).max(2).default(0.5),
     trafficCars: z.array(z.string()).default([]),
+    trafficPackIds: z.array(z.string()).default([]),
     welcomeMessage: z.string().optional(),
   })
   .optional();

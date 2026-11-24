@@ -107,21 +107,39 @@ describe('configGenerator', () => {
         created_at: '',
       },
     ];
+    const trafficCar: CarRecord = {
+      id: 'traffic_van_ai',
+      name: 'Traffic Van',
+      brand: 'Traffic',
+      car_class: 'traffic',
+      specs_json: '{}',
+      skins_json: '["white"]',
+      is_kunos: 0,
+      version: '1.0',
+      sha256: 'xyz',
+      download_path: 'downloads/cars/traffic_van_ai.zip',
+      download_size: 50,
+      has_preview: 0,
+      created_at: '',
+    };
     const entry = generateEntryListIni({
       server: mockServer,
       cars,
+      trafficCars: [trafficCar],
       trafficConfig: {
         maxAiPerPlayer: 4,
         aiDensity: 20,
         maxAiCount: 8,
         maxSpeedKmh: 120,
         rightLaneOffset: 0.5,
-        trafficCars: ['bmw_m3_e92'],
+        trafficCars: ['traffic_van_ai'],
       },
     });
-    expect(entry).toContain('[CAR_0]');
-    expect(entry).toContain('MODEL=bmw_m3_e92');
+    expect(entry).toContain('[CAR_0]\nMODEL=bmw_m3_e92');
+    expect(entry).toContain('[CAR_16]\nMODEL=traffic_van_ai');
     expect(entry).toContain('AI=fixed');
+    // Player slots must NOT get the traffic-only car
+    expect(entry.split('[CAR_16]')[0]).not.toContain('MODEL=traffic_van_ai');
   });
 
   it('generates extra_cfg.yml and csp_extra_options.ini with VDS download URLs', () => {
