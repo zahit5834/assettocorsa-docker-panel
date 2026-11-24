@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Bot,
   Car,
   Download,
@@ -15,6 +16,7 @@ import {
   apiFetch,
   formatBytes,
   uploadWithProgress,
+  type CarCompatibilityWarning,
   type CarItem,
   type TrackItem,
 } from '../lib/api';
@@ -37,6 +39,9 @@ export default function ContentPage() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState('');
+  const [uploadWarnings, setUploadWarnings] = useState<
+    Array<{ carId: string; carName: string; warnings: CarCompatibilityWarning[] }>
+  >([]);
   const [error, setError] = useState('');
   const [rescanning, setRescanning] = useState(false);
 
@@ -57,6 +62,7 @@ export default function ContentPage() {
     e.preventDefault();
     setError('');
     setStatusMsg('');
+    setUploadWarnings([]);
     setUploading(true);
     setProgress(0);
 
@@ -75,6 +81,11 @@ export default function ContentPage() {
         const res = await uploadWithProgress<{
           importedCars: string[];
           importedTracks: string[];
+          carWarnings?: Array<{
+            carId: string;
+            carName: string;
+            warnings: CarCompatibilityWarning[];
+          }>;
           createdPackId: string | null;
         }>('/api/content/upload', fd, setProgress);
 
@@ -83,6 +94,7 @@ export default function ContentPage() {
             res.createdPackId ? ' (+ Pack oluşturuldu!)' : ''
           }`
         );
+        setUploadWarnings(res.carWarnings || []);
         setFile(null);
         setPackName('');
         setVersion('');
@@ -91,6 +103,11 @@ export default function ContentPage() {
         const res = await apiFetch<{
           importedCars: string[];
           importedTracks: string[];
+          carWarnings?: Array<{
+            carId: string;
+            carName: string;
+            warnings: CarCompatibilityWarning[];
+          }>;
           createdPackId: string | null;
         }>('/api/content/import-url', {
           method: 'POST',
@@ -107,6 +124,7 @@ export default function ContentPage() {
         setStatusMsg(
           `URL üzerinden içe aktarıldı: ${res.importedTracks.length} harita, ${res.importedCars.length} araba`
         );
+        setUploadWarnings(res.carWarnings || []);
         setRemoteUrl('');
         setPackName('');
       }
@@ -233,6 +251,22 @@ export default function ContentPage() {
         {statusMsg && (
           <div className="p-3 rounded-lg bg-emerald-950/50 border border-emerald-700 text-emerald-200 text-xs">
             {statusMsg}
+          </div>
+        )}
+        {uploadWarnings.length > 0 && (
+          <div className="p-3.5 rounded-lg bg-amber-950/50 border border-amber-700/80 text-amber-200 text-xs space-y-2">
+            <div className="font-semibold flex items-center gap-1.5 text-amber-300">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              Ön Kontrol Uyarısı: {uploadWarnings.length} araçta sunucu uyumluluk uyarısı tespit edildi
+            </div>
+            <ul className="space-y-1 pl-5 list-disc">
+              {uploadWarnings.map((item) => (
+                <li key={item.carId}>
+                  <strong>{item.carName}</strong> ({item.carId}):{' '}
+                  {item.warnings.map((w) => w.message).join(' • ')}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
@@ -528,6 +562,23 @@ export default function ContentPage() {
                           {formatBytes(c.download_size)}
                         </span>
                       </div>
+                      {c.warnings && c.warnings.length > 0 && (
+                        <div className="mt-2.5 space-y-1">
+                          {c.warnings.map((w, idx) => (
+                            <div
+                              key={idx}
+                              className={`text-[11px] px-2.5 py-1.5 rounded-lg flex items-start gap-1.5 ${
+                                w.severity === 'error'
+                                  ? 'bg-red-950/60 border border-red-800/80 text-red-200'
+                                  : 'bg-amber-950/50 border border-amber-800/70 text-amber-200'
+                              }`}
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              <span>{w.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 text-xs">

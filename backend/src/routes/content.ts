@@ -42,6 +42,7 @@ async function importArchiveIntoLibrary(params: {
 
     const importedCars: string[] = [];
     const importedTracks: string[] = [];
+    const carWarnings: Array<{ carId: string; carName: string; warnings: typeof scanned.cars[number]['warnings'] }> = [];
 
     for (const car of scanned.cars) {
       const targetDir = path.join(paths.carsDir, car.id);
@@ -69,8 +70,8 @@ async function importArchiveIntoLibrary(params: {
       const version = params.version?.trim() || sha256.slice(0, 8);
 
       db.prepare(
-        `INSERT INTO cars (id, name, brand, car_class, specs_json, skins_json, is_kunos, is_traffic, version, sha256, download_path, download_size, has_preview)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO cars (id, name, brand, car_class, specs_json, skins_json, is_kunos, is_traffic, warnings_json, version, sha256, download_path, download_size, has_preview)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            brand = excluded.brand,
@@ -79,6 +80,7 @@ async function importArchiveIntoLibrary(params: {
            skins_json = excluded.skins_json,
            is_kunos = excluded.is_kunos,
            is_traffic = excluded.is_traffic,
+           warnings_json = excluded.warnings_json,
            version = excluded.version,
            sha256 = excluded.sha256,
            download_path = excluded.download_path,
@@ -93,6 +95,7 @@ async function importArchiveIntoLibrary(params: {
         JSON.stringify(car.skins),
         isKunos,
         isTraffic,
+        JSON.stringify(car.warnings),
         version,
         sha256,
         zipRelPath,
@@ -101,6 +104,9 @@ async function importArchiveIntoLibrary(params: {
       );
 
       importedCars.push(car.id);
+      if (car.warnings.length > 0) {
+        carWarnings.push({ carId: car.id, carName: car.name, warnings: car.warnings });
+      }
     }
 
     for (const track of scanned.tracks) {
@@ -216,6 +222,7 @@ async function importArchiveIntoLibrary(params: {
     return {
       importedCars,
       importedTracks,
+      carWarnings,
       createdPackId,
       hasExtraCfg: Boolean(scanned.extraCfgYml),
       hasCspExtra: Boolean(scanned.cspExtraOptions),
@@ -236,6 +243,7 @@ export async function contentRoutes(app: FastifyInstance) {
         skins: JSON.parse(c.skins_json || '[]'),
         is_kunos: Boolean(c.is_kunos),
         is_traffic: Boolean(c.is_traffic),
+        warnings: JSON.parse(c.warnings_json || '[]'),
         has_preview: Boolean(c.has_preview),
       })),
     };
@@ -411,11 +419,12 @@ export async function contentRoutes(app: FastifyInstance) {
         hasPreview = 1;
       }
       db.prepare(
-        `INSERT INTO cars (id, name, brand, car_class, specs_json, skins_json, is_kunos, is_traffic, version, sha256, download_path, download_size, has_preview)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO cars (id, name, brand, car_class, specs_json, skins_json, is_kunos, is_traffic, warnings_json, version, sha256, download_path, download_size, has_preview)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, brand = excluded.brand, skins_json = excluded.skins_json,
            is_traffic = CASE WHEN cars.is_traffic = 1 THEN 1 ELSE excluded.is_traffic END,
+           warnings_json = excluded.warnings_json,
            sha256 = excluded.sha256, download_path = excluded.download_path,
            download_size = excluded.download_size, has_preview = excluded.has_preview`
       ).run(
@@ -427,6 +436,7 @@ export async function contentRoutes(app: FastifyInstance) {
         JSON.stringify(car.skins),
         car.isKunos ? 1 : 0,
         car.isTraffic ? 1 : 0,
+        JSON.stringify(car.warnings),
         sha256.slice(0, 8),
         sha256,
         zipRelPath,

@@ -12,6 +12,7 @@ import {
   slugify,
 } from './configGenerator.js';
 import {
+  checkCarCompatibility,
   createCmArchive,
   createMultiContentBundleZip,
   detectTrafficCar,
@@ -110,6 +111,7 @@ describe('configGenerator', () => {
         skins_json: '["black","white"]',
         is_kunos: 0,
         is_traffic: 0,
+        warnings_json: '[]',
         version: '1.0',
         sha256: 'abc',
         download_path: 'downloads/cars/bmw_m3_e92.zip',
@@ -127,6 +129,7 @@ describe('configGenerator', () => {
       skins_json: '["white"]',
       is_kunos: 0,
       is_traffic: 1,
+      warnings_json: '[]',
       version: '1.0',
       sha256: 'xyz',
       download_path: 'downloads/cars/traffic_van_ai.zip',
@@ -244,6 +247,24 @@ describe('contentScanner & archive packaging', () => {
       detectTrafficCar('nissan_fairlady_z', { name: 'Nissan Fairlady Z', brand: 'Nissan' })
     ).toBe(false);
     expect(detectTrafficCar('ks_porsche_cayman_gt4', { name: 'Porsche Cayman GT4' })).toBe(false);
+  });
+
+  it('flags server-locked mods, CSP Lua scripts, and missing server files without modifying them', () => {
+    const cleanCar = makeTempDir();
+    fs.writeFileSync(path.join(cleanCar, 'data.acd'), 'acd');
+    fs.writeFileSync(path.join(cleanCar, 'collider.kn5'), 'kn5');
+    expect(checkCarCompatibility(cleanCar, { name: 'Clean Civic' })).toEqual([]);
+
+    const lockedCar = makeTempDir();
+    fs.mkdirSync(path.join(lockedCar, 'extension'), { recursive: true });
+    fs.writeFileSync(path.join(lockedCar, 'data.acd'), 'acd');
+    fs.writeFileSync(
+      path.join(lockedCar, 'extension', 'script.lua'),
+      'if ac.getServerIP() ~= "1.2.3.4" then error("This car only works on official servers") end'
+    );
+    const warnings = checkCarCompatibility(lockedCar, { name: 'Locked Car' });
+    expect(warnings.some((w) => w.code === 'server_locked' && w.severity === 'error')).toBe(true);
+    expect(warnings.some((w) => w.code === 'missing_collider')).toBe(true);
   });
 
   it('detects nested cars, multi-layout tracks with AI splines, and creates CM-ready zips', async () => {

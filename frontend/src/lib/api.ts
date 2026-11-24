@@ -3,6 +3,12 @@ export interface UserInfo {
   username: string;
 }
 
+export interface CarCompatibilityWarning {
+  code: 'server_locked' | 'csp_script' | 'missing_data_acd' | 'missing_collider';
+  severity: 'error' | 'warning';
+  message: string;
+}
+
 export interface CarItem {
   id: string;
   name: string;
@@ -12,6 +18,7 @@ export interface CarItem {
   skins: string[];
   is_kunos: boolean;
   is_traffic: boolean;
+  warnings: CarCompatibilityWarning[];
   version: string;
   sha256: string;
   download_path: string;

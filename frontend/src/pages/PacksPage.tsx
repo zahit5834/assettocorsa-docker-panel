@@ -149,11 +149,16 @@ export default function PacksPage() {
       const res = await uploadWithProgress<{
         importedCars: string[];
         importedTracks: string[];
+        carWarnings?: Array<{ carId: string; carName: string; warnings: Array<{ message: string }> }>;
       }>('/api/content/upload', fd, setProgress);
+      const warnNote =
+        res.carWarnings && res.carWarnings.length > 0
+          ? ` ⚠️ Uyarı: ${res.carWarnings.length} araçta sunucu uyumluluk/kilit uyarısı tespit edildi (Harita & Arabalar sayfasından detaylara bakın).`
+          : '';
       setUploadMsg(
         `Pack kuruldu! ${res.importedTracks.length} harita ve ${res.importedCars.length} araba kütüphaneye + Pack'e eklendi${
           archiveIsTraffic ? ' (AI Trafik Pack olarak işaretlendi)' : ''
-        }.`
+        }.${warnNote}`
       );
       setPackArchive(null);
       setArchivePackName('');

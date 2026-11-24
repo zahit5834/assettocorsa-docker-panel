@@ -1,4 +1,4 @@
-import { Boxes, Car, Cpu, MapPin, Shield, Sparkles, Wand2, X } from 'lucide-react';
+import { AlertTriangle, Boxes, Car, Cpu, MapPin, Shield, Sparkles, Wand2, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   apiFetch,
@@ -596,20 +596,35 @@ export default function ServerFormModal({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-52 overflow-y-auto p-1">
                 {filteredCars.map((car) => {
                   const active = selectedCarIds.includes(car.id);
+                  const hasErrWarn = car.warnings?.some((w) => w.severity === 'error');
+                  const hasWarn = car.warnings && car.warnings.length > 0;
                   return (
                     <button
                       key={car.id}
                       type="button"
                       onClick={() => toggleCar(car.id)}
+                      title={hasWarn ? car.warnings.map((w) => w.message).join(' | ') : undefined}
                       className={`px-3 py-2 rounded-lg border text-left text-xs transition ${
                         active
                           ? 'bg-sky-600/20 border-sky-500 text-white'
-                          : 'bg-[#090d14] border-slate-800 text-slate-300 hover:border-slate-700'
+                          : hasErrWarn
+                            ? 'bg-red-950/25 border-red-800/70 text-slate-200 hover:border-red-600'
+                            : 'bg-[#090d14] border-slate-800 text-slate-300 hover:border-slate-700'
                       }`}
                     >
-                      <div className="font-semibold truncate">{car.name}</div>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-semibold truncate">{car.name}</span>
+                        {hasWarn && (
+                          <AlertTriangle
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              hasErrWarn ? 'text-red-400' : 'text-amber-400'
+                            }`}
+                          />
+                        )}
+                      </div>
                       <div className="text-[10px] text-slate-400 truncate">
                         {car.id} {car.is_kunos ? '• Kunos' : ''}
+                        {hasErrWarn ? ' • Sunucu kilidi uyarısı!' : ''}
                       </div>
                     </button>
                   );

@@ -8,6 +8,12 @@ import { getDataPaths } from './config.js';
 
 const execFileAsync = promisify(execFile);
 
+export interface CarCompatibilityWarning {
+  code: 'server_locked' | 'csp_script' | 'missing_data_acd' | 'missing_collider';
+  severity: 'error' | 'warning';
+  message: string;
+}
+
 export interface DetectedCar {
   id: string;
   sourceDir: string;
@@ -19,6 +25,7 @@ export interface DetectedCar {
   previewFile: string | null;
   isKunos: boolean;
   isTraffic: boolean;
+  warnings: CarCompatibilityWarning[];
 }
 
 export interface DetectedTrack {
@@ -233,6 +240,120 @@ export function detectTrafficCar(
   return candidates.some((val) => trafficSubstrRegex.test(val) || tokenRegex.test(val));
 }
 
+/**
+ * Read-only compatibility pre-check for uploaded car mods.
+ * Flags missing server files (data.acd, collider.kn5) and potential third-party
+ * server-only restrictions / CSP extension scripts so admins are warned before
+ * deploying a car to players. Never modifies mod files.
+ */
+export function checkCarCompatibility(
+  carDir: string,
+  uiJson?: {
+    name?: string;
+    description?: string;
+    author?: string;
+    tags?: string[];
+  } | null
+): CarCompatibilityWarning[] {
+  const warnings: CarCompatibilityWarning[] = [];
+
+  // 1. Check essential server-side files
+  const hasDataAcd = fs.existsSync(path.join(carDir, 'data.acd'));
+  const hasDataDir = fs.existsSync(path.join(carDir, 'data', 'car.ini'));
+  if (!hasDataAcd && !hasDataDir) {
+    warnings.push({
+      code: 'missing_data_acd',
+      severity: 'error',
+      message: 'data.acd veya data/car.ini bulunamadı — sunucuda çalışmayabilir.',
+    });
+  } else if (!hasDataAcd) {
+    warnings.push({
+      code: 'missing_data_acd',
+      severity: 'warning',
+      message: 'data.acd eksik (açık data/ klasörü var) — Vanilla acServer checksum uyumsuzluğu olabilir.',
+    });
+  }
+
+  if (!fs.existsSync(path.join(carDir, 'collider.kn5'))) {
+    warnings.push({
+      code: 'missing_collider',
+      severity: 'warning',
+      message: 'collider.kn5 eksik — çarpışma veya checksum sorunu oluşabilir.',
+    });
+  }
+
+  // 2. Read-only scan of plain-text metadata & extension config/scripts for server-lock indicators
+  const serverLockTextRegex =
+    /(only\s+works?\s+on\s+.*servers?|yaln[ıi]zca\s+.*sunucular[ıi]nda|sadece\s+.*sunucular[ıi]nda|exclusive\s+to\s+.*server|server[\s_-]?locked|getServerIP|sim\.serverIP|ac\.getServerIP|serverName\s*[=~]=)/i;
+
+  let serverLockDetected = false;
+  let hasCspLuaScript = false;
+
+  const metaBlob = [
+    uiJson?.name || '',
+    uiJson?.description || '',
+    uiJson?.author || '',
+    ...(Array.isArray(uiJson?.tags) ? uiJson.tags.map(String) : []),
+  ].join('\n');
+
+  if (serverLockTextRegex.test(metaBlob)) {
+    serverLockDetected = true;
+  }
+
+  const extDir = path.join(carDir, 'extension');
+  if (fs.existsSync(extDir) && fs.statSync(extDir).isDirectory()) {
+    const scanExt = (dir: string, depth: number) => {
+      if (depth > 3) return;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scanExt(full, depth + 1);
+          continue;
+        }
+        const lower = entry.name.toLowerCase();
+        if (lower.endsWith('.lua')) {
+          hasCspLuaScript = true;
+        }
+        if (lower.endsWith('.ini') || lower.endsWith('.lua') || lower.endsWith('.txt')) {
+          try {
+            const stat = fs.statSync(full);
+            if (stat.size <= 512 * 1024) {
+              const text = fs.readFileSync(full, 'utf8');
+              if (serverLockTextRegex.test(text)) {
+                serverLockDetected = true;
+              }
+              if (lower.endsWith('.ini') && /^\s*\[SCRIPT_/im.test(text)) {
+                hasCspLuaScript = true;
+              }
+            }
+          } catch {
+            // ignore unreadable files
+          }
+        }
+      }
+    };
+    scanExt(extDir, 0);
+  }
+
+  if (serverLockDetected) {
+    warnings.push({
+      code: 'server_locked',
+      severity: 'error',
+      message:
+        'Bu araç belirli bir topluluğun resmi sunucularına özel kilitli olabilir — kendi sunucunuzda çalışmayabilir.',
+    });
+  } else if (hasCspLuaScript) {
+    warnings.push({
+      code: 'csp_script',
+      severity: 'warning',
+      message:
+        'Özel CSP extension scripti içeriyor — üçüncü parti sunucu kısıtlaması olabilir, eklemeden önce test edin.',
+    });
+  }
+
+  return warnings;
+}
+
 function inspectCarDirectory(dir: string, folderName: string): DetectedCar {
   const id = sanitizeFolderId(folderName);
   const uiJson = parseRelaxedJson<{
@@ -240,6 +361,7 @@ function inspectCarDirectory(dir: string, folderName: string): DetectedCar {
     brand?: string;
     class?: string;
     description?: string;
+    author?: string;
     tags?: string[];
     specs?: Record<string, unknown>;
   }>(path.join(dir, 'ui', 'ui_car.json'));
@@ -277,6 +399,7 @@ function inspectCarDirectory(dir: string, folderName: string): DetectedCar {
     previewFile,
     isKunos: id.toLowerCase().startsWith('ks_'),
     isTraffic: detectTrafficCar(id, uiJson),
+    warnings: checkCarCompatibility(dir, uiJson),
   };
 }
 
