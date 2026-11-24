@@ -231,7 +231,40 @@ export function writeServerConfigFiles(db: DatabaseSync, server: ServerRecord): 
     carIds: resolved.carIds,
     publicIp,
     panelPort,
+    trafficConfig: trafficCfg,
   });
+
+  // Ensure AssettoServer can find layout AI splines in the track root ai/ directory
+  if (server.engine === 'assettoserver' && server.traffic_enabled && resolved.effectiveTrackId) {
+    const trackDir = path.join(paths.tracksDir, resolved.effectiveTrackId);
+    const rootAiDir = path.join(trackDir, 'ai');
+    const hasRootSpline =
+      fs.existsSync(path.join(rootAiDir, 'fast_lane.ai')) ||
+      fs.existsSync(path.join(rootAiDir, 'fast_lane.aip'));
+    if (!hasRootSpline && fs.existsSync(trackDir)) {
+      const candidateLayouts = [
+        ...(server.track_config ? [server.track_config] : []),
+        ...(resolved.track ? safeJsonParse<string[]>(resolved.track.layouts_json, []) : []),
+      ];
+      for (const layout of candidateLayouts) {
+        const layoutAiDir = path.join(trackDir, layout, 'ai');
+        for (const fname of ['fast_lane.aip', 'fast_lane.ai']) {
+          const src = path.join(layoutAiDir, fname);
+          if (fs.existsSync(src)) {
+            fs.mkdirSync(rootAiDir, { recursive: true });
+            fs.copyFileSync(src, path.join(rootAiDir, fname));
+            break;
+          }
+        }
+        if (
+          fs.existsSync(path.join(rootAiDir, 'fast_lane.ai')) ||
+          fs.existsSync(path.join(rootAiDir, 'fast_lane.aip'))
+        ) {
+          break;
+        }
+      }
+    }
+  }
 
   const entryList = generateEntryListIni({
     server,

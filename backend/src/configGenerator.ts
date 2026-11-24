@@ -148,17 +148,28 @@ export function getTemplate(templateId: string): ServerTemplateDefinition {
   return SERVER_TEMPLATES.find((t) => t.id === templateId) || SERVER_TEMPLATES[0];
 }
 
+export function getAiSlotCount(server: ServerRecord, trafficConfig?: TrafficConfig): number {
+  if (server.engine !== 'assettoserver' || !server.traffic_enabled) {
+    return 0;
+  }
+  const tCfg = { ...DEFAULT_TRAFFIC_CONFIG, ...trafficConfig };
+  return Math.min(Math.max(4, tCfg.maxAiCount || 20), 120);
+}
+
 export function generateServerCfgIni(params: {
   server: ServerRecord;
   carIds: string[];
   publicIp: string;
   panelPort: number;
+  trafficConfig?: TrafficConfig;
 }): string {
-  const { server, carIds, publicIp, panelPort } = params;
+  const { server, carIds, trafficConfig } = params;
   const tpl = getTemplate(server.template);
   const carsList = carIds.length > 0 ? carIds.join(';') : 'ks_bmw_m3_e30';
   const trackId = server.track_id || 'monza';
-  const joinPortalUrl = `http://${publicIp}:${panelPort}/join/${server.slug}`;
+  const playerSlots = Math.max(1, server.max_clients || 16);
+  const aiSlots = getAiSlotCount(server, trafficConfig);
+  const totalMaxClients = playerSlots + aiSlots;
 
   const lines: string[] = [
     '[SERVER]',
@@ -200,7 +211,7 @@ export function generateServerCfgIni(params: {
     `TYRE_BLANKETS_ALLOWED=${tpl.tireBlankets}`,
     `FORCE_VIRTUAL_MIRROR=0`,
     `REGISTER_TO_LOBBY=${server.register_to_lobby ? 1 : 0}`,
-    `MAX_CLIENTS=${server.max_clients}`,
+    `MAX_CLIENTS=${totalMaxClients}`,
     `UDP_PLUGIN_LOCAL_PORT=0`,
     `UDP_PLUGIN_ADDRESS=`,
     `AUTH_PLUGIN_ADDRESS=`,
@@ -304,6 +315,7 @@ export function generateEntryListIni(params: {
         'GUID=',
         'BALLAST=0',
         'RESTRICTOR=0',
+        ...(server.engine === 'assettoserver' && server.traffic_enabled ? ['AI=none'] : []),
         '',
       ].join('\n')
     );
@@ -311,7 +323,8 @@ export function generateEntryListIni(params: {
   }
 
   // AssettoServer AI traffic slots (separate traffic pool if provided, otherwise fallback to player cars)
-  if (server.engine === 'assettoserver' && server.traffic_enabled) {
+  const aiSlotCount = getAiSlotCount(server, trafficConfig);
+  if (aiSlotCount > 0) {
     const tCfg = { ...DEFAULT_TRAFFIC_CONFIG, ...trafficConfig };
     const allCarRecords = [...effectiveCars, ...(trafficCars || [])];
     const aiPool: string[] =
@@ -320,7 +333,6 @@ export function generateEntryListIni(params: {
         : tCfg.trafficCars && tCfg.trafficCars.length > 0
           ? tCfg.trafficCars
           : effectiveCars.map((c) => c.id);
-    const aiSlotCount = Math.min(Math.max(4, tCfg.maxAiCount || 20), 120);
 
     for (let j = 0; j < aiSlotCount; j++) {
       const modelId = aiPool[j % aiPool.length];

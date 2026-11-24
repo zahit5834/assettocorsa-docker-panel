@@ -73,16 +73,25 @@ describe('configGenerator', () => {
     expect(slugify('İstanbul Şutoko Trafik #1')).toBe('istanbul-sutoko-trafik-1');
   });
 
-  it('generates server_cfg.ini with custom ports and join portal welcome message', () => {
+  it('generates server_cfg.ini with custom ports, AI-inclusive MAX_CLIENTS, and welcome message', () => {
     const ini = generateServerCfgIni({
       server: mockServer,
       carIds: ['bmw_m3_e92', 'nissan_gtr'],
       publicIp: '185.10.20.30',
       panelPort: 5829,
+      trafficConfig: {
+        maxAiPerPlayer: 4,
+        aiDensity: 20,
+        maxAiCount: 10,
+        maxSpeedKmh: 120,
+        rightLaneOffset: 0.5,
+        trafficCars: [],
+      },
     });
     expect(ini).toContain('UDP_PORT=9610');
     expect(ini).toContain('TCP_PORT=9610');
     expect(ini).toContain('HTTP_PORT=8085');
+    expect(ini).toContain('MAX_CLIENTS=26');
     expect(ini).toContain('CARS=bmw_m3_e92;nissan_gtr');
     expect(ini).toContain('TRACK=shuto_revival_project_beta');
     expect(ini).toContain('CONFIG_TRACK=shibaura_pa');
