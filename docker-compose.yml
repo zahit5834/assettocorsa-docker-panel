@@ -1,0 +1,58 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ac-panel-backend
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - DATA_DIR=/data
+      - HOST_DATA_DIR=${HOST_DATA_DIR:-./data}
+      - PROJECT_DIR=/project
+      - HOST_PROJECT_DIR=${HOST_PROJECT_DIR:-.}
+      - PANEL_PORT=${PANEL_PORT:-5829}
+      - VDS_PUBLIC_IP=${VDS_PUBLIC_IP:-127.0.0.1}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-ChangeMe123!}
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
+      - ASSETTOSERVER_IMAGE=${ASSETTOSERVER_IMAGE:-compujuckel/assettoserver:latest}
+      - VANILLA_AC_IMAGE=${VANILLA_AC_IMAGE:-ac-panel-vanilla:latest}
+      - TZ=${TZ:-Europe/Istanbul}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOST_DATA_DIR:-./data}:/data
+      - ${HOST_PROJECT_DIR:-.}:/project
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ac-panel-net
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: ac-panel-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${PANEL_PORT:-5829}:80"
+    volumes:
+      - ${HOST_DATA_DIR:-./data}:/data:ro
+    networks:
+      - ac-panel-net
+
+  # Opsiyonel Vanilla acServer imajını build etmek için profil tabanlı servis
+  # (docker compose --profile build-vanilla build vanilla-ac-builder)
+  vanilla-ac-builder:
+    build:
+      context: ./images/vanilla-ac
+      dockerfile: Dockerfile
+    image: ${VANILLA_AC_IMAGE:-ac-panel-vanilla:latest}
+    profiles:
+      - build-vanilla
+
+networks:
+  ac-panel-net:
+    driver: bridge
