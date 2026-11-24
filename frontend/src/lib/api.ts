@@ -92,10 +92,15 @@ export interface ServerItem {
     maxAiPerPlayer: number;
     aiDensity: number;
     maxAiCount: number;
+    maxAiTargetCount?: number;
     maxSpeedKmh: number;
     rightLaneOffset: number;
     rightLaneOffsetKph?: number;
     laneWidthMeters?: number;
+    playerRadiusMeters?: number;
+    playerPositionOffsetMeters?: number;
+    minSpawnDistancePoints?: number;
+    maxSpawnDistancePoints?: number;
     maxPlayerDistanceMeters?: number;
     minSafetyDistanceMeters?: number;
     maxSafetyDistanceMeters?: number;

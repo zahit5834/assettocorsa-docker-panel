@@ -89,10 +89,15 @@ export interface TrafficConfig {
   maxAiPerPlayer: number;
   aiDensity: number;
   maxAiCount: number;
+  maxAiTargetCount?: number;
   maxSpeedKmh: number;
   rightLaneOffset: number;
   rightLaneOffsetKph?: number;
   laneWidthMeters?: number;
+  playerRadiusMeters?: number;
+  playerPositionOffsetMeters?: number;
+  minSpawnDistancePoints?: number;
+  maxSpawnDistancePoints?: number;
   maxPlayerDistanceMeters?: number;
   minSafetyDistanceMeters?: number;
   maxSafetyDistanceMeters?: number;
@@ -104,17 +109,22 @@ export interface TrafficConfig {
 }
 
 export const DEFAULT_TRAFFIC_CONFIG: TrafficConfig = {
-  maxAiPerPlayer: 8,
+  maxAiPerPlayer: 35,
   aiDensity: 25,
-  maxAiCount: 60,
+  maxAiCount: 100,
+  maxAiTargetCount: 200,
   maxSpeedKmh: 90,
   rightLaneOffset: 0,
   rightLaneOffsetKph: 0,
   laneWidthMeters: 3,
+  playerRadiusMeters: 350,
+  playerPositionOffsetMeters: 120,
+  minSpawnDistancePoints: 75,
+  maxSpawnDistancePoints: 300,
   maxPlayerDistanceMeters: 20,
-  minSafetyDistanceMeters: 6,
-  maxSafetyDistanceMeters: 18,
-  stateSpawnDistanceMeters: 150,
+  minSafetyDistanceMeters: 10,
+  maxSafetyDistanceMeters: 24,
+  stateSpawnDistanceMeters: 100,
   twoWayTraffic: false,
   trafficCars: [],
   trafficPackIds: [],
@@ -167,7 +177,7 @@ export function getAiSlotCount(server: ServerRecord, trafficConfig?: TrafficConf
     return 0;
   }
   const tCfg = { ...DEFAULT_TRAFFIC_CONFIG, ...trafficConfig };
-  return Math.min(Math.max(4, tCfg.maxAiCount || 20), 120);
+  return Math.min(Math.max(4, tCfg.maxAiCount || 20), 200);
 }
 
 export const TIME_OF_DAY_PRESETS: Record<string, { label: string; sunAngle: number; ambient: number; road: number }> = {
@@ -428,17 +438,26 @@ export function generateExtraCfgYml(params: {
 
   if (server.traffic_enabled) {
     const tCfg = { ...DEFAULT_TRAFFIC_CONFIG, ...params.trafficConfig };
+    const perPlayer = Math.max(1, tCfg.maxAiPerPlayer || 35);
+    const maxTarget = Math.max(
+      perPlayer,
+      tCfg.maxAiTargetCount || Math.max(tCfg.maxAiCount || 100, perPlayer * 2)
+    );
     baseConfig.AiParams = {
+      AiPerPlayerTargetCount: perPlayer,
+      MaxAiTargetCount: maxTarget,
       MaxSpeedKph: tCfg.maxSpeedKmh || 90,
       RightLaneOffsetKph: tCfg.rightLaneOffsetKph ?? 0,
       MaxSpeedVariationPercent: 0.15,
       LaneWidthMeters: tCfg.laneWidthMeters ?? 3,
-      PlayerRadiusMeters: 500,
-      PlayerPositionOffsetMeters: 100,
+      PlayerRadiusMeters: tCfg.playerRadiusMeters ?? 350,
+      PlayerPositionOffsetMeters: tCfg.playerPositionOffsetMeters ?? 120,
+      MinSpawnDistancePoints: tCfg.minSpawnDistancePoints ?? 75,
+      MaxSpawnDistancePoints: tCfg.maxSpawnDistancePoints ?? 300,
       MaxPlayerDistanceToAiSplineMeters: tCfg.maxPlayerDistanceMeters ?? 20,
-      MinAiSafetyDistanceMeters: tCfg.minSafetyDistanceMeters ?? 6,
-      MaxAiSafetyDistanceMeters: tCfg.maxSafetyDistanceMeters ?? 18,
-      StateSpawnDistanceMeters: tCfg.stateSpawnDistanceMeters ?? 150,
+      MinAiSafetyDistanceMeters: tCfg.minSafetyDistanceMeters ?? 10,
+      MaxAiSafetyDistanceMeters: tCfg.maxSafetyDistanceMeters ?? 24,
+      StateSpawnDistanceMeters: tCfg.stateSpawnDistanceMeters ?? 100,
       TwoWayTraffic: Boolean(tCfg.twoWayTraffic),
     };
   }

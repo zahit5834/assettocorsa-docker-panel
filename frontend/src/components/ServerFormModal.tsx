@@ -49,9 +49,12 @@ export default function ServerFormModal({
   const [trafficEnabled, setTrafficEnabled] = useState(
     initialServer ? initialServer.traffic_enabled : true
   );
-  const [maxAiCount, setMaxAiCount] = useState(initialServer?.traffic_config?.maxAiCount || 50);
+  const [maxAiCount, setMaxAiCount] = useState(initialServer?.traffic_config?.maxAiCount || 100);
   const [maxAiPerPlayer, setMaxAiPerPlayer] = useState(
-    initialServer?.traffic_config?.maxAiPerPlayer || 8
+    initialServer?.traffic_config?.maxAiPerPlayer || 35
+  );
+  const [maxAiTargetCount, setMaxAiTargetCount] = useState(
+    initialServer?.traffic_config?.maxAiTargetCount || 200
   );
   const [maxSpeedKmh, setMaxSpeedKmh] = useState(initialServer?.traffic_config?.maxSpeedKmh || 90);
   const [rightLaneOffsetKph, setRightLaneOffsetKph] = useState(
@@ -60,14 +63,29 @@ export default function ServerFormModal({
   const [laneWidthMeters, setLaneWidthMeters] = useState(
     initialServer?.traffic_config?.laneWidthMeters ?? 3
   );
+  const [playerRadiusMeters, setPlayerRadiusMeters] = useState(
+    initialServer?.traffic_config?.playerRadiusMeters ?? 350
+  );
+  const [playerPositionOffsetMeters, setPlayerPositionOffsetMeters] = useState(
+    initialServer?.traffic_config?.playerPositionOffsetMeters ?? 120
+  );
+  const [minSpawnDistancePoints, setMinSpawnDistancePoints] = useState(
+    initialServer?.traffic_config?.minSpawnDistancePoints ?? 75
+  );
+  const [maxSpawnDistancePoints, setMaxSpawnDistancePoints] = useState(
+    initialServer?.traffic_config?.maxSpawnDistancePoints ?? 300
+  );
   const [maxPlayerDistanceMeters, setMaxPlayerDistanceMeters] = useState(
     initialServer?.traffic_config?.maxPlayerDistanceMeters ?? 20
   );
   const [minSafetyDistanceMeters, setMinSafetyDistanceMeters] = useState(
-    initialServer?.traffic_config?.minSafetyDistanceMeters ?? 6
+    initialServer?.traffic_config?.minSafetyDistanceMeters ?? 10
   );
   const [maxSafetyDistanceMeters, setMaxSafetyDistanceMeters] = useState(
-    initialServer?.traffic_config?.maxSafetyDistanceMeters ?? 18
+    initialServer?.traffic_config?.maxSafetyDistanceMeters ?? 24
+  );
+  const [stateSpawnDistanceMeters, setStateSpawnDistanceMeters] = useState(
+    initialServer?.traffic_config?.stateSpawnDistanceMeters ?? 100
   );
   const [twoWayTraffic, setTwoWayTraffic] = useState(
     Boolean(initialServer?.traffic_config?.twoWayTraffic)
@@ -221,15 +239,20 @@ export default function ServerFormModal({
         traffic_config: {
           maxAiCount: Number(maxAiCount),
           maxAiPerPlayer: Number(maxAiPerPlayer),
+          maxAiTargetCount: Number(maxAiTargetCount),
           maxSpeedKmh: Number(maxSpeedKmh),
           aiDensity: 25,
           rightLaneOffset: 0,
           rightLaneOffsetKph: Number(rightLaneOffsetKph),
           laneWidthMeters: Number(laneWidthMeters),
+          playerRadiusMeters: Number(playerRadiusMeters),
+          playerPositionOffsetMeters: Number(playerPositionOffsetMeters),
+          minSpawnDistancePoints: Number(minSpawnDistancePoints),
+          maxSpawnDistancePoints: Number(maxSpawnDistancePoints),
           maxPlayerDistanceMeters: Number(maxPlayerDistanceMeters),
           minSafetyDistanceMeters: Number(minSafetyDistanceMeters),
           maxSafetyDistanceMeters: Number(maxSafetyDistanceMeters),
-          stateSpawnDistanceMeters: 150,
+          stateSpawnDistanceMeters: Number(stateSpawnDistanceMeters),
           twoWayTraffic,
           trafficCars: trafficCarIds,
           trafficPackIds,
@@ -707,26 +730,131 @@ export default function ServerFormModal({
               </label>
 
               {trafficEnabled && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                <div className="space-y-3 pt-1">
+                  {/* One-click traffic density presets */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-semibold text-slate-400">Hızlı Yoğunluk Ayarı:</span>
+                    {[
+                      {
+                        label: 'Hafif (Cruise)',
+                        vals: {
+                          maxAiCount: 60,
+                          maxAiPerPlayer: 20,
+                          maxAiTargetCount: 120,
+                          minSafety: 16,
+                          maxSafety: 42,
+                          radius: 450,
+                          offset: 100,
+                          minPts: 100,
+                          maxPts: 400,
+                          stateDist: 140,
+                        },
+                      },
+                      {
+                        label: 'Normal',
+                        vals: {
+                          maxAiCount: 100,
+                          maxAiPerPlayer: 35,
+                          maxAiTargetCount: 200,
+                          minSafety: 12,
+                          maxSafety: 26,
+                          radius: 360,
+                          offset: 120,
+                          minPts: 80,
+                          maxPts: 300,
+                          stateDist: 110,
+                        },
+                      },
+                      {
+                        label: 'Yoğun (Shutoko)',
+                        vals: {
+                          maxAiCount: 140,
+                          maxAiPerPlayer: 65,
+                          maxAiTargetCount: 260,
+                          minSafety: 9,
+                          maxSafety: 18,
+                          radius: 320,
+                          offset: 130,
+                          minPts: 65,
+                          maxPts: 250,
+                          stateDist: 85,
+                        },
+                      },
+                      {
+                        label: 'No Hesi Extreme',
+                        vals: {
+                          maxAiCount: 160,
+                          maxAiPerPlayer: 95,
+                          maxAiTargetCount: 320,
+                          minSafety: 7,
+                          maxSafety: 14,
+                          radius: 280,
+                          offset: 140,
+                          minPts: 55,
+                          maxPts: 220,
+                          stateDist: 65,
+                        },
+                      },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          setMaxAiCount(preset.vals.maxAiCount);
+                          setMaxAiPerPlayer(preset.vals.maxAiPerPlayer);
+                          setMaxAiTargetCount(preset.vals.maxAiTargetCount);
+                          setMinSafetyDistanceMeters(preset.vals.minSafety);
+                          setMaxSafetyDistanceMeters(preset.vals.maxSafety);
+                          setPlayerRadiusMeters(preset.vals.radius);
+                          setPlayerPositionOffsetMeters(preset.vals.offset);
+                          setMinSpawnDistancePoints(preset.vals.minPts);
+                          setMaxSpawnDistancePoints(preset.vals.maxPts);
+                          setStateSpawnDistanceMeters(preset.vals.stateDist);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-red-600/25 border border-slate-700 hover:border-red-500/60 text-[11px] font-medium text-slate-200 transition"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Maksimum AI Araç</label>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      AI Araç Slotu (entry_list)
+                    </label>
                     <input
                       type="number"
                       min={4}
-                      max={150}
+                      max={200}
                       value={maxAiCount}
                       onChange={(e) => setMaxAiCount(Number(e.target.value))}
                       className="panel-input"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Oyuncu Başı AI</label>
+                    <label className="block text-xs text-amber-300 font-medium mb-1">
+                      Oyuncu Başı Hedef AI (Asıl Yoğunluk)
+                    </label>
                     <input
                       type="number"
                       min={1}
-                      max={30}
+                      max={150}
                       value={maxAiPerPlayer}
                       onChange={(e) => setMaxAiPerPlayer(Number(e.target.value))}
+                      className="panel-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Global Maks. AI Hedefi
+                    </label>
+                    <input
+                      type="number"
+                      min={4}
+                      max={400}
+                      value={maxAiTargetCount}
+                      onChange={(e) => setMaxAiTargetCount(Number(e.target.value))}
                       className="panel-input"
                     />
                   </div>
@@ -770,6 +898,32 @@ export default function ServerFormModal({
                   </div>
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">
+                      Min Araç Mesafesi (m, önerilen 7-12)
+                    </label>
+                    <input
+                      type="number"
+                      min={3}
+                      max={50}
+                      value={minSafetyDistanceMeters}
+                      onChange={(e) => setMinSafetyDistanceMeters(Number(e.target.value))}
+                      className="panel-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Maks Araç Mesafesi (m, önerilen 14-26)
+                    </label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={80}
+                      value={maxSafetyDistanceMeters}
+                      onChange={(e) => setMaxSafetyDistanceMeters(Number(e.target.value))}
+                      className="panel-input"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
                       Oyuncu-Spline Mesafesi (m)
                     </label>
                     <input
@@ -783,31 +937,56 @@ export default function ServerFormModal({
                   </div>
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">
-                      Min Araç Mesafesi (m)
+                      Spawn Yarıçapı (PlayerRadius, m)
                     </label>
                     <input
                       type="number"
-                      min={3}
-                      max={50}
-                      value={minSafetyDistanceMeters}
-                      onChange={(e) => setMinSafetyDistanceMeters(Number(e.target.value))}
+                      min={150}
+                      max={1000}
+                      value={playerRadiusMeters}
+                      onChange={(e) => setPlayerRadiusMeters(Number(e.target.value))}
                       className="panel-input"
                     />
                   </div>
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">
-                      Maks Araç Mesafesi (m)
+                      Min / Maks Spawn Noktası (Ön)
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <input
+                        type="number"
+                        min={20}
+                        max={400}
+                        value={minSpawnDistancePoints}
+                        onChange={(e) => setMinSpawnDistancePoints(Number(e.target.value))}
+                        className="panel-input"
+                        title="MinSpawnDistancePoints"
+                      />
+                      <input
+                        type="number"
+                        min={80}
+                        max={1000}
+                        value={maxSpawnDistancePoints}
+                        onChange={(e) => setMaxSpawnDistancePoints(Number(e.target.value))}
+                        className="panel-input"
+                        title="MaxSpawnDistancePoints"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Aynı Model Mesafesi (StateSpawn, m)
                     </label>
                     <input
                       type="number"
-                      min={5}
-                      max={80}
-                      value={maxSafetyDistanceMeters}
-                      onChange={(e) => setMaxSafetyDistanceMeters(Number(e.target.value))}
+                      min={30}
+                      max={500}
+                      value={stateSpawnDistanceMeters}
+                      onChange={(e) => setStateSpawnDistanceMeters(Number(e.target.value))}
                       className="panel-input"
                     />
                   </div>
-                  <div className="flex items-end pb-2">
+                  <div className="flex items-end pb-2 sm:col-span-3">
                     <label className="inline-flex items-center gap-2 text-xs text-slate-200 cursor-pointer">
                       <input
                         type="checkbox"
@@ -815,7 +994,7 @@ export default function ServerFormModal({
                         onChange={(e) => setTwoWayTraffic(e.target.checked)}
                         className="w-4 h-4 accent-amber-500"
                       />
-                      Çift Yönlü Trafik (TwoWayTraffic)
+                      Çift Yönlü Trafik (TwoWayTraffic — kapalıyken tüm araçlar senin şeritlerine yoğunlaşır)
                     </label>
                   </div>
                   <div className="sm:col-span-3">
@@ -946,6 +1125,7 @@ export default function ServerFormModal({
                         </div>
                       </div>
                     )}
+                  </div>
                   </div>
                 </div>
               )}
