@@ -197,7 +197,7 @@ export function generateServerCfgIni(params: {
     `AUTOCLUTCH_ALLOWED=1`,
     `TYRE_BLANKETS_ALLOWED=${tpl.tireBlankets}`,
     `FORCE_VIRTUAL_MIRROR=0`,
-    `REGISTER_TO_LOBBY=1`,
+    `REGISTER_TO_LOBBY=${server.register_to_lobby ? 1 : 0}`,
     `MAX_CLIENTS=${server.max_clients}`,
     `UDP_PLUGIN_LOCAL_PORT=0`,
     `UDP_PLUGIN_ADDRESS=`,

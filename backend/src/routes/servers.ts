@@ -55,6 +55,7 @@ const createServerSchema = z.object({
   template: z.string().optional().default('freeroam_traffic'),
   description: z.string().optional().default(''),
   cm_autodownload: z.boolean().optional().default(true),
+  register_to_lobby: z.boolean().optional().default(false),
   memory_limit_mb: z.number().int().min(0).max(65536).optional().default(0),
   cpu_limit: z.number().min(0).max(64).optional().default(0),
   auto_start: z.boolean().optional().default(false),
@@ -97,6 +98,7 @@ async function enrichServer(server: ServerRecord, includeStats = false) {
       ...safeJsonParse<Partial<TrafficConfig>>(server.traffic_config_json, {}),
     },
     cm_autodownload: Boolean(server.cm_autodownload),
+    register_to_lobby: Boolean(server.register_to_lobby),
     effective_track: resolved.track
       ? { id: resolved.track.id, name: resolved.track.name, layouts: safeJsonParse<string[]>(resolved.track.layouts_json, []) }
       : resolved.effectiveTrackId
@@ -168,8 +170,8 @@ export async function serverRoutes(app: FastifyInstance) {
         id, slug, name, engine, udp_port, tcp_port, http_port, password, admin_password,
         max_clients, track_id, track_config, car_ids_json, pack_ids_json,
         traffic_enabled, traffic_config_json, template, description, cm_autodownload,
-        memory_limit_mb, cpu_limit
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        register_to_lobby, memory_limit_mb, cpu_limit
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       slug,
@@ -190,6 +192,7 @@ export async function serverRoutes(app: FastifyInstance) {
       data.template,
       data.description,
       data.cm_autodownload ? 1 : 0,
+      data.register_to_lobby ? 1 : 0,
       data.memory_limit_mb,
       data.cpu_limit
     );
@@ -247,7 +250,7 @@ export async function serverRoutes(app: FastifyInstance) {
          name = ?, engine = ?, udp_port = ?, tcp_port = ?, http_port = ?,
          password = ?, admin_password = ?, max_clients = ?, track_id = ?, track_config = ?,
          car_ids_json = ?, pack_ids_json = ?, traffic_enabled = ?, traffic_config_json = ?,
-         template = ?, description = ?, cm_autodownload = ?, memory_limit_mb = ?, cpu_limit = ?,
+         template = ?, description = ?, cm_autodownload = ?, register_to_lobby = ?, memory_limit_mb = ?, cpu_limit = ?,
          updated_at = datetime('now')
        WHERE id = ?`
     ).run(
@@ -268,6 +271,7 @@ export async function serverRoutes(app: FastifyInstance) {
       data.template,
       data.description,
       data.cm_autodownload ? 1 : 0,
+      data.register_to_lobby ? 1 : 0,
       data.memory_limit_mb,
       data.cpu_limit,
       id
@@ -313,8 +317,8 @@ export async function serverRoutes(app: FastifyInstance) {
         id, slug, name, engine, udp_port, tcp_port, http_port, password, admin_password,
         max_clients, track_id, track_config, car_ids_json, pack_ids_json,
         traffic_enabled, traffic_config_json, template, description, cm_autodownload,
-        memory_limit_mb, cpu_limit
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        register_to_lobby, memory_limit_mb, cpu_limit
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       newId,
       newSlug,
@@ -335,6 +339,7 @@ export async function serverRoutes(app: FastifyInstance) {
       source.template,
       source.description,
       source.cm_autodownload,
+      source.register_to_lobby,
       source.memory_limit_mb,
       source.cpu_limit
     );

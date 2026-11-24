@@ -75,6 +75,7 @@ export interface ServerRecord {
   template: string;
   description: string;
   cm_autodownload: number;
+  register_to_lobby: number;
   bundle_sha256: string;
   bundle_size: number;
   container_id: string;
@@ -196,6 +197,7 @@ function initSchema(db: DatabaseSync) {
       template TEXT NOT NULL DEFAULT 'freeroam_traffic',
       description TEXT NOT NULL DEFAULT '',
       cm_autodownload INTEGER NOT NULL DEFAULT 1,
+      register_to_lobby INTEGER NOT NULL DEFAULT 0,
       bundle_sha256 TEXT NOT NULL DEFAULT '',
       bundle_size INTEGER NOT NULL DEFAULT 0,
       container_id TEXT NOT NULL DEFAULT '',
@@ -205,6 +207,16 @@ function initSchema(db: DatabaseSync) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Safe schema migrations for existing databases
+  try {
+    const cols = db.prepare('PRAGMA table_info(servers)').all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === 'register_to_lobby')) {
+      db.exec('ALTER TABLE servers ADD COLUMN register_to_lobby INTEGER NOT NULL DEFAULT 0;');
+    }
+  } catch {
+    // ignore
+  }
 
   // Seed default settings if missing
   const defaultSettings: Record<string, string> = {

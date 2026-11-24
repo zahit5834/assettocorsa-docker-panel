@@ -92,6 +92,7 @@ export interface ServerItem {
   template: string;
   description: string;
   cm_autodownload: boolean;
+  register_to_lobby: boolean;
   bundle_sha256: string;
   bundle_size: number;
   memory_limit_mb: number;

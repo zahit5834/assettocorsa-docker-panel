@@ -61,6 +61,9 @@ export default function ServerFormModal({
   const [cmAutodownload, setCmAutodownload] = useState(
     initialServer ? initialServer.cm_autodownload : true
   );
+  const [registerToLobby, setRegisterToLobby] = useState(
+    initialServer ? initialServer.register_to_lobby : false
+  );
   const [memoryLimitMb, setMemoryLimitMb] = useState(initialServer?.memory_limit_mb || 0);
   const [autoStart, setAutoStart] = useState(!isEdit);
 
@@ -160,6 +163,7 @@ export default function ServerFormModal({
         template,
         description,
         cm_autodownload: cmAutodownload,
+        register_to_lobby: registerToLobby,
         memory_limit_mb: Number(memoryLimitMb),
         cpu_limit: 0,
         auto_start: autoStart,
@@ -655,6 +659,16 @@ export default function ServerFormModal({
                 className="w-4 h-4 accent-red-600"
               />
               Content Manager Eksik Mod İndirme Entegrasyonu (csp_extra_options)
+            </label>
+
+            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={registerToLobby}
+                onChange={(e) => setRegisterToLobby(e.target.checked)}
+                className="w-4 h-4 accent-red-600"
+              />
+              Kunos Genel Lobisinde Listele (REGISTER_TO_LOBBY — NAT/kapalı portta kapalı tutun)
             </label>
 
             {!isEdit && (

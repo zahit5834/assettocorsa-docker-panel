@@ -58,6 +58,7 @@ describe('configGenerator', () => {
     template: 'freeroam_traffic',
     description: 'TR Freeroam',
     cm_autodownload: 1,
+    register_to_lobby: 0,
     bundle_sha256: '',
     bundle_size: 0,
     container_id: '',
