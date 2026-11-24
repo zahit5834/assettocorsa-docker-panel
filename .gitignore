@@ -14,10 +14,13 @@ build/
 *.tsbuildinfo
 *.log
 
-# Archives
+# Archives & generated AI splines
 *.rar
 *.zip
 *.7z
+*.ai
+*.aip
+generated-splines/
 
 # OS
 .DS_Store

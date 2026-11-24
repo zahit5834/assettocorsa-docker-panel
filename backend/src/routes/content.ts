@@ -581,21 +581,48 @@ export async function contentRoutes(app: FastifyInstance) {
       const origName = path.basename(file.filename || 'fast_lane.aip');
       const lower = origName.toLowerCase();
 
+      const syncSplineToTrack = (srcFile: string, targetName: 'fast_lane.ai' | 'fast_lane.aip') => {
+        const otherName = targetName === 'fast_lane.aip' ? 'fast_lane.ai' : 'fast_lane.aip';
+        const targetDirs = [trackAiDir];
+        const trackRoot = path.join(paths.tracksDir, id);
+        if (fs.existsSync(trackRoot)) {
+          for (const entry of fs.readdirSync(trackRoot, { withFileTypes: true })) {
+            if (!entry.isDirectory() || entry.name === 'ai' || entry.name === 'ui') continue;
+            const layoutAi = path.join(trackRoot, entry.name, 'ai');
+            if (fs.existsSync(layoutAi)) {
+              targetDirs.push(layoutAi);
+            }
+          }
+        }
+        for (const dir of targetDirs) {
+          fs.mkdirSync(dir, { recursive: true });
+          const dest = path.join(dir, targetName);
+          if (path.resolve(srcFile) !== path.resolve(dest)) {
+            fs.copyFileSync(srcFile, dest);
+          }
+          try {
+            fs.chmodSync(dest, 0o644);
+          } catch {
+            // ignore on Windows
+          }
+          const staleOther = path.join(dir, otherName);
+          if (fs.existsSync(staleOther)) {
+            fs.rmSync(staleOther, { force: true });
+          }
+        }
+      };
+
       if (lower.endsWith('.ai') || lower.endsWith('.aip')) {
         const targetName = lower.endsWith('.aip') ? 'fast_lane.aip' : 'fast_lane.ai';
         const targetPath = path.join(trackAiDir, targetName);
         await pipeline(file.file, fs.createWriteStream(targetPath));
-        try {
-          fs.chmodSync(targetPath, 0o644);
-        } catch {
-          // ignore on Windows
-        }
+        syncSplineToTrack(targetPath, targetName);
         db.prepare('UPDATE tracks SET has_ai_spline = 1 WHERE id = ?').run(id);
         return {
           success: true,
           filename: targetName,
           size: fs.statSync(targetPath).size,
-          message: `${targetName} haritaya yüklendi. Sunucuyu yeniden başlatınca aktif olur.`,
+          message: `${targetName} haritaya ve tüm layout AI klasörlerine yüklendi. Sunucuyu yeniden başlatınca aktif olur.`,
         };
       }
 
@@ -632,18 +659,13 @@ export async function contentRoutes(app: FastifyInstance) {
           ? 'fast_lane.aip'
           : 'fast_lane.ai';
         const targetPath = path.join(trackAiDir, targetName);
-        fs.copyFileSync(foundSpline, targetPath);
-        try {
-          fs.chmodSync(targetPath, 0o644);
-        } catch {
-          // ignore
-        }
+        syncSplineToTrack(foundSpline, targetName);
         db.prepare('UPDATE tracks SET has_ai_spline = 1 WHERE id = ?').run(id);
         return {
           success: true,
           filename: targetName,
           size: fs.statSync(targetPath).size,
-          message: `${targetName} arşivden çıkarılıp haritaya yüklendi.`,
+          message: `${targetName} arşivden çıkarılıp haritaya ve layout AI klasörlerine yüklendi.`,
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'AI spline yüklenemedi.';
