@@ -1,9 +1,14 @@
 FROM node:24-bookworm-slim
 
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    p7zip-full \
+    7zip \
+    unar \
     unzip \
     libarchive-tools \
+    zstd \
     tar \
     curl \
     git \

@@ -83,45 +83,82 @@ export function parseRelaxedJson<T = Record<string, unknown>>(filePath: string):
   }
 }
 
+function clearDirectoryContents(dir: string): void {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir)) {
+    fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
+  }
+}
+
 export async function extractArchiveSafely(archivePath: string, destDir: string): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
   const lower = archivePath.toLowerCase();
+  const execOpts = {
+    maxBuffer: 1024 * 1024 * 32,
+    env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+  };
 
-  if (lower.endsWith('.zip')) {
-    try {
-      await execFileAsync('unzip', ['-o', '-q', archivePath, '-d', destDir], {
-        maxBuffer: 1024 * 1024 * 32,
-      });
-    } catch {
-      await execFileAsync('7z', ['x', '-y', `-o${destDir}`, archivePath], {
-        maxBuffer: 1024 * 1024 * 32,
-      });
-    }
-  } else if (lower.endsWith('.7z') || lower.endsWith('.rar')) {
-    try {
-      await execFileAsync('7z', ['x', '-y', `-o${destDir}`, archivePath], {
-        maxBuffer: 1024 * 1024 * 32,
-      });
-    } catch {
-      await execFileAsync('bsdtar', ['-xf', archivePath, '-C', destDir], {
-        maxBuffer: 1024 * 1024 * 32,
-      });
-    }
+  type ExtractorAttempt = { cmd: string; args: string[] };
+  let attempts: ExtractorAttempt[];
+
+  if (lower.endsWith('.rar')) {
+    attempts = [
+      { cmd: 'unar', args: ['-f', '-q', '-D', '-o', destDir, archivePath] },
+      { cmd: 'bsdtar', args: ['-xf', archivePath, '-C', destDir] },
+      { cmd: '7zz', args: ['x', '-y', `-o${destDir}`, archivePath] },
+      { cmd: '7z', args: ['x', '-y', `-o${destDir}`, archivePath] },
+    ];
+  } else if (lower.endsWith('.zip')) {
+    // bsdtar (libarchive) handles ZSTD-in-ZIP, 7zz handles LZMA/Deflate64, unar handles Unicode/mixed
+    attempts = [
+      { cmd: 'bsdtar', args: ['-xf', archivePath, '-C', destDir] },
+      { cmd: '7zz', args: ['x', '-y', `-o${destDir}`, archivePath] },
+      { cmd: 'unar', args: ['-f', '-q', '-D', '-o', destDir, archivePath] },
+      { cmd: 'unzip', args: ['-o', '-q', archivePath, '-d', destDir] },
+      { cmd: '7z', args: ['x', '-y', `-o${destDir}`, archivePath] },
+    ];
+  } else if (lower.endsWith('.7z')) {
+    attempts = [
+      { cmd: '7zz', args: ['x', '-y', `-o${destDir}`, archivePath] },
+      { cmd: 'unar', args: ['-f', '-q', '-D', '-o', destDir, archivePath] },
+      { cmd: 'bsdtar', args: ['-xf', archivePath, '-C', destDir] },
+      { cmd: '7z', args: ['x', '-y', `-o${destDir}`, archivePath] },
+    ];
   } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz') || lower.endsWith('.tar')) {
-    await execFileAsync('tar', ['-xf', archivePath, '-C', destDir], {
-      maxBuffer: 1024 * 1024 * 32,
-    });
+    attempts = [
+      { cmd: 'tar', args: ['-xf', archivePath, '-C', destDir] },
+      { cmd: 'bsdtar', args: ['-xf', archivePath, '-C', destDir] },
+    ];
   } else {
-    // Fallback auto-detect with 7z / bsdtar
+    attempts = [
+      { cmd: 'bsdtar', args: ['-xf', archivePath, '-C', destDir] },
+      { cmd: '7zz', args: ['x', '-y', `-o${destDir}`, archivePath] },
+      { cmd: 'unar', args: ['-f', '-q', '-D', '-o', destDir, archivePath] },
+      { cmd: '7z', args: ['x', '-y', `-o${destDir}`, archivePath] },
+    ];
+  }
+
+  let extracted = false;
+  let lastError: unknown = null;
+
+  for (const attempt of attempts) {
     try {
-      await execFileAsync('7z', ['x', '-y', `-o${destDir}`, archivePath], {
-        maxBuffer: 1024 * 1024 * 32,
-      });
-    } catch {
-      await execFileAsync('bsdtar', ['-xf', archivePath, '-C', destDir], {
-        maxBuffer: 1024 * 1024 * 32,
-      });
+      clearDirectoryContents(destDir);
+      await execFileAsync(attempt.cmd, attempt.args, execOpts);
+      if (fs.readdirSync(destDir).length > 0) {
+        extracted = true;
+        break;
+      }
+    } catch (err) {
+      lastError = err;
     }
+  }
+
+  if (!extracted) {
+    const detail = lastError instanceof Error ? lastError.message : 'Bilinmeyen arşiv hatası';
+    throw new Error(
+      `Arşiv açılamadı (şifreli, bozuk veya desteklenmeyen sıkıştırma olabilir): ${detail}`
+    );
   }
 
   // Zip-Slip & symlink escape verification
