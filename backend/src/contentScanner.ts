@@ -18,6 +18,7 @@ export interface DetectedCar {
   skins: string[];
   previewFile: string | null;
   isKunos: boolean;
+  isTraffic: boolean;
 }
 
 export interface DetectedTrack {
@@ -207,12 +208,39 @@ function detectTrackAiSpline(dir: string, layouts: string[]): boolean {
   return candidates.some((c) => fs.existsSync(c));
 }
 
+export function detectTrafficCar(
+  folderId: string,
+  uiJson?: {
+    name?: string;
+    brand?: string;
+    class?: string;
+    description?: string;
+    tags?: string[];
+  } | null
+): boolean {
+  const tokenRegex = /(?:^|[^a-z0-9])(traffic|npc|ai)(?:$|[^a-z0-9])/i;
+  const trafficSubstrRegex = /traffic/i;
+
+  const candidates: string[] = [
+    folderId || '',
+    uiJson?.name || '',
+    uiJson?.brand || '',
+    uiJson?.class || '',
+    uiJson?.description || '',
+    ...(Array.isArray(uiJson?.tags) ? uiJson.tags.map(String) : []),
+  ];
+
+  return candidates.some((val) => trafficSubstrRegex.test(val) || tokenRegex.test(val));
+}
+
 function inspectCarDirectory(dir: string, folderName: string): DetectedCar {
   const id = sanitizeFolderId(folderName);
   const uiJson = parseRelaxedJson<{
     name?: string;
     brand?: string;
     class?: string;
+    description?: string;
+    tags?: string[];
     specs?: Record<string, unknown>;
   }>(path.join(dir, 'ui', 'ui_car.json'));
 
@@ -248,6 +276,7 @@ function inspectCarDirectory(dir: string, folderName: string): DetectedCar {
     skins: skins.sort(),
     previewFile,
     isKunos: id.toLowerCase().startsWith('ks_'),
+    isTraffic: detectTrafficCar(id, uiJson),
   };
 }
 

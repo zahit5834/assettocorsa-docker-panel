@@ -43,6 +43,7 @@ export default function PacksPage() {
   const [packArchive, setPackArchive] = useState<File | null>(null);
   const [archivePackName, setArchivePackName] = useState('');
   const [archiveDesc, setArchiveDesc] = useState('');
+  const [archiveIsTraffic, setArchiveIsTraffic] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [uploadMsg, setUploadMsg] = useState('');
@@ -141,16 +142,23 @@ export default function PacksPage() {
       fd.append('type', 'pack');
       fd.append('pack_name', archivePackName.trim());
       fd.append('pack_description', archiveDesc.trim());
+      if (archiveIsTraffic) {
+        fd.append('pack_category', 'traffic');
+        fd.append('is_traffic', 'true');
+      }
       const res = await uploadWithProgress<{
         importedCars: string[];
         importedTracks: string[];
       }>('/api/content/upload', fd, setProgress);
       setUploadMsg(
-        `Pack kuruldu! ${res.importedTracks.length} harita ve ${res.importedCars.length} araba kütüphaneye + Pack'e eklendi.`
+        `Pack kuruldu! ${res.importedTracks.length} harita ve ${res.importedCars.length} araba kütüphaneye + Pack'e eklendi${
+          archiveIsTraffic ? ' (AI Trafik Pack olarak işaretlendi)' : ''
+        }.`
       );
       setPackArchive(null);
       setArchivePackName('');
       setArchiveDesc('');
+      setArchiveIsTraffic(false);
       await load();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Pack arşivi yüklenemedi.');
@@ -197,36 +205,52 @@ export default function PacksPage() {
             {uploadMsg}
           </div>
         )}
-        <form onSubmit={handlePackArchiveUpload} className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input
-            type="text"
-            value={archivePackName}
-            onChange={(e) => setArchivePackName(e.target.value)}
-            className="panel-input"
-            placeholder="Pack Adı (Örn: No Hesi Trafik Pack)"
-            required
-          />
-          <input
-            type="text"
-            value={archiveDesc}
-            onChange={(e) => setArchiveDesc(e.target.value)}
-            className="panel-input"
-            placeholder="Açıklama (Opsiyonel)"
-          />
-          <div className="flex gap-2">
-            <label className="flex-1 panel-input cursor-pointer flex items-center justify-center text-xs text-slate-300 truncate">
-              {packArchive ? packArchive.name : 'Pack Arşivi Seç...'}
-              <input
-                type="file"
-                accept=".zip,.7z,.rar,.tar,.gz,.tgz"
-                className="hidden"
-                onChange={(e) => setPackArchive(e.target.files?.[0] || null)}
-              />
-            </label>
-            <button type="submit" disabled={uploading || !packArchive} className="btn-primary shrink-0">
-              {uploading ? `%${progress}` : 'Kur'}
-            </button>
+        <form onSubmit={handlePackArchiveUpload} className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <input
+              type="text"
+              value={archivePackName}
+              onChange={(e) => setArchivePackName(e.target.value)}
+              className="panel-input"
+              placeholder="Pack Adı (Örn: No Hesi Trafik Pack)"
+              required
+            />
+            <input
+              type="text"
+              value={archiveDesc}
+              onChange={(e) => setArchiveDesc(e.target.value)}
+              className="panel-input"
+              placeholder="Açıklama (Opsiyonel)"
+            />
+            <div className="flex gap-2">
+              <label className="flex-1 panel-input cursor-pointer flex items-center justify-center text-xs text-slate-300 truncate">
+                {packArchive ? packArchive.name : 'Pack Arşivi Seç...'}
+                <input
+                  type="file"
+                  accept=".zip,.7z,.rar,.tar,.gz,.tgz"
+                  className="hidden"
+                  onChange={(e) => setPackArchive(e.target.files?.[0] || null)}
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={uploading || !packArchive}
+                className="btn-primary shrink-0"
+              >
+                {uploading ? `%${progress}` : 'Kur'}
+              </button>
+            </div>
           </div>
+
+          <label className="inline-flex items-center gap-2 text-xs text-amber-300 cursor-pointer font-medium">
+            <input
+              type="checkbox"
+              checked={archiveIsTraffic}
+              onChange={(e) => setArchiveIsTraffic(e.target.checked)}
+              className="w-4 h-4 accent-amber-500"
+            />
+            Trafik Pack / NPC Aracı (İçindeki tüm arabaları otomatik AI Trafik aracı olarak işaretle)
+          </label>
         </form>
       </div>
 
@@ -410,28 +434,56 @@ export default function PacksPage() {
               </div>
 
               <div>
-                <label className="block text-xs text-slate-400 mb-1.5">
-                  Arabalar ({selectedCarIds.length} seçili)
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs text-slate-400">
+                    Arabalar ({selectedCarIds.length} seçili)
+                  </label>
+                  {category === 'traffic' && cars.some((c) => c.is_traffic) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedCarIds(cars.filter((c) => c.is_traffic).map((c) => c.id))
+                      }
+                      className="text-[11px] text-amber-400 hover:text-amber-300"
+                    >
+                      Tüm Trafik Araçlarını Seç
+                    </button>
+                  )}
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto p-1">
-                  {cars.map((c) => {
-                    const active = selectedCarIds.includes(c.id);
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => toggle(selectedCarIds, c.id, setSelectedCarIds)}
-                        className={`px-3 py-2 rounded-lg border text-left text-xs ${
-                          active
-                            ? 'bg-sky-600/20 border-sky-500 text-white'
-                            : 'bg-[#090d14] border-slate-800 text-slate-300'
-                        }`}
-                      >
-                        <div className="font-semibold truncate">{c.name}</div>
-                        <div className="text-[10px] text-slate-400 truncate">{c.id}</div>
-                      </button>
-                    );
-                  })}
+                  {[...cars]
+                    .sort((a, b) =>
+                      category === 'traffic'
+                        ? Number(b.is_traffic) - Number(a.is_traffic)
+                        : Number(a.is_traffic) - Number(b.is_traffic)
+                    )
+                    .map((c) => {
+                      const active = selectedCarIds.includes(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => toggle(selectedCarIds, c.id, setSelectedCarIds)}
+                          className={`px-3 py-2 rounded-lg border text-left text-xs ${
+                            active
+                              ? c.is_traffic
+                                ? 'bg-amber-600/20 border-amber-500 text-white'
+                                : 'bg-sky-600/20 border-sky-500 text-white'
+                              : 'bg-[#090d14] border-slate-800 text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-semibold truncate">{c.name}</span>
+                            {c.is_traffic && (
+                              <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 shrink-0">
+                                AI
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400 truncate">{c.id}</div>
+                        </button>
+                      );
+                    })}
                 </div>
               </div>
 

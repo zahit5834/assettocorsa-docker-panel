@@ -10,6 +10,7 @@ export interface CarRecord {
   specs_json: string;
   skins_json: string;
   is_kunos: number;
+  is_traffic: number;
   version: string;
   sha256: string;
   download_path: string;
@@ -132,6 +133,7 @@ function initSchema(db: DatabaseSync) {
       specs_json TEXT NOT NULL DEFAULT '{}',
       skins_json TEXT NOT NULL DEFAULT '[]',
       is_kunos INTEGER NOT NULL DEFAULT 0,
+      is_traffic INTEGER NOT NULL DEFAULT 0,
       version TEXT NOT NULL DEFAULT '1.0',
       sha256 TEXT NOT NULL DEFAULT '',
       download_path TEXT NOT NULL DEFAULT '',
@@ -213,6 +215,10 @@ function initSchema(db: DatabaseSync) {
     const cols = db.prepare('PRAGMA table_info(servers)').all() as Array<{ name: string }>;
     if (!cols.some((c) => c.name === 'register_to_lobby')) {
       db.exec('ALTER TABLE servers ADD COLUMN register_to_lobby INTEGER NOT NULL DEFAULT 0;');
+    }
+    const carCols = db.prepare('PRAGMA table_info(cars)').all() as Array<{ name: string }>;
+    if (!carCols.some((c) => c.name === 'is_traffic')) {
+      db.exec('ALTER TABLE cars ADD COLUMN is_traffic INTEGER NOT NULL DEFAULT 0;');
     }
   } catch {
     // ignore

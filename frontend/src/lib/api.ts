@@ -11,6 +11,7 @@ export interface CarItem {
   specs: Record<string, unknown>;
   skins: string[];
   is_kunos: boolean;
+  is_traffic: boolean;
   version: string;
   sha256: string;
   download_path: string;

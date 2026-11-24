@@ -1,4 +1,5 @@
 import {
+  Bot,
   Car,
   Download,
   FolderSync,
@@ -21,7 +22,7 @@ import {
 export default function ContentPage() {
   const [cars, setCars] = useState<CarItem[]>([]);
   const [tracks, setTracks] = useState<TrackItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'tracks' | 'cars'>('tracks');
+  const [activeTab, setActiveTab] = useState<'tracks' | 'cars' | 'traffic'>('tracks');
   const [uploadMode, setUploadMode] = useState<'file' | 'url'>('file');
   const [search, setSearch] = useState('');
 
@@ -31,6 +32,7 @@ export default function ContentPage() {
   const [hintType, setHintType] = useState<'auto' | 'car' | 'track' | 'pack'>('auto');
   const [version, setVersion] = useState('');
   const [markKunos, setMarkKunos] = useState(false);
+  const [markTraffic, setMarkTraffic] = useState(false);
   const [packName, setPackName] = useState('');
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -66,6 +68,8 @@ export default function ContentPage() {
         if (hintType !== 'auto') fd.append('type', hintType);
         if (version.trim()) fd.append('version', version.trim());
         fd.append('is_kunos', String(markKunos));
+        fd.append('is_traffic', String(markTraffic));
+        if (markTraffic && packName.trim()) fd.append('pack_category', 'traffic');
         if (packName.trim()) fd.append('pack_name', packName.trim());
 
         const res = await uploadWithProgress<{
@@ -94,8 +98,10 @@ export default function ContentPage() {
             url: remoteUrl.trim(),
             type: hintType === 'auto' ? undefined : hintType,
             is_kunos: markKunos,
+            is_traffic: markTraffic,
             version: version.trim() || undefined,
             pack_name: packName.trim() || undefined,
+            pack_category: markTraffic && packName.trim() ? 'traffic' : undefined,
           }),
         });
         setStatusMsg(
@@ -121,7 +127,9 @@ export default function ContentPage() {
         '/api/content/rescan',
         { method: 'POST' }
       );
-      setStatusMsg(`Kütüphane tarandı: ${res.tracksCount} harita, ${res.carsCount} araba senkronize edildi.`);
+      setStatusMsg(
+        `Kütüphane tarandı: ${res.tracksCount} harita, ${res.carsCount} araba senkronize edildi.`
+      );
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Tarama başarısız.');
@@ -138,23 +146,36 @@ export default function ContentPage() {
     await load();
   };
 
+  const toggleTraffic = async (id: string, current: boolean) => {
+    await apiFetch(`/api/content/cars/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_traffic: !current }),
+    });
+    await load();
+  };
+
   const deleteItem = async (kind: 'cars' | 'tracks', id: string, name: string) => {
     if (!confirm(`"${name}" kalıcı olarak silinecek. Emin misiniz?`)) return;
     await apiFetch(`/api/content/${kind}/${encodeURIComponent(id)}`, { method: 'DELETE' });
     await load();
   };
 
+  const playerCars = cars.filter((c) => !c.is_traffic);
+  const trafficCars = cars.filter((c) => c.is_traffic);
+
+  const matchesSearch = (c: CarItem) =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    c.id.toLowerCase().includes(search.toLowerCase()) ||
+    c.brand.toLowerCase().includes(search.toLowerCase());
+
   const filteredTracks = tracks.filter(
     (t) =>
       t.name.toLowerCase().includes(search.toLowerCase()) ||
       t.id.toLowerCase().includes(search.toLowerCase())
   );
-  const filteredCars = cars.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.id.toLowerCase().includes(search.toLowerCase()) ||
-      c.brand.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredPlayerCars = playerCars.filter(matchesSearch);
+  const filteredTrafficCars = trafficCars.filter(matchesSearch);
+  const displayedCars = activeTab === 'traffic' ? filteredTrafficCars : filteredPlayerCars;
 
   return (
     <div className="space-y-6">
@@ -162,8 +183,8 @@ export default function ContentPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Harita &amp; Araba Kütüphanesi</h1>
           <p className="text-sm text-slate-400 mt-0.5">
-            Yüklenen her mod otomatik taranır ve oyuncuların tıklayıp indirebileceği Content Manager
-            uyumlu .zip arşivi olarak hazırlanır.
+            Yüklenen her mod otomatik taranır; klasör veya ui_car.json içinde traffic / ai / npc
+            geçen araçlar otomatik Trafik Aracı olarak işaretlenir.
           </p>
         </div>
         <button disabled={rescanning} onClick={handleRescan} className="btn-secondary">
@@ -220,7 +241,9 @@ export default function ContentPage() {
             <label className="block border-2 border-dashed border-slate-700 hover:border-red-500/70 rounded-xl p-6 text-center cursor-pointer bg-[#090d14] transition">
               <Upload className="w-7 h-7 text-slate-400 mx-auto mb-2" />
               <div className="text-sm font-medium text-slate-200">
-                {file ? `${file.name} (${formatBytes(file.size)})` : 'Arşiv dosyasını seçin veya buraya bırakın'}
+                {file
+                  ? `${file.name} (${formatBytes(file.size)})`
+                  : 'Arşiv dosyasını seçin veya buraya bırakın'}
               </div>
               <div className="text-xs text-slate-500 mt-1">
                 Desteklenenler: .zip, .7z, .rar, .tar.gz
@@ -287,15 +310,27 @@ export default function ContentPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={markKunos}
-                onChange={(e) => setMarkKunos(e.target.checked)}
-                className="w-4 h-4 accent-red-600"
-              />
-              Orijinal Kunos İçeriği (Oyunculara &quot;Oyunla Gelir - İndirmeye Gerek Yok&quot; olarak göster)
-            </label>
+            <div className="flex flex-wrap gap-5">
+              <label className="flex items-center gap-2 text-xs text-amber-300 cursor-pointer font-medium">
+                <input
+                  type="checkbox"
+                  checked={markTraffic}
+                  onChange={(e) => setMarkTraffic(e.target.checked)}
+                  className="w-4 h-4 accent-amber-500"
+                />
+                Trafik Pack / NPC Aracı Olarak İşaretle (AI Trafik)
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={markKunos}
+                  onChange={(e) => setMarkKunos(e.target.checked)}
+                  className="w-4 h-4 accent-red-600"
+                />
+                Orijinal Kunos İçeriği (Oyunla Gelir)
+              </label>
+            </div>
 
             <button type="submit" disabled={uploading} className="btn-primary">
               {uploading
@@ -320,7 +355,7 @@ export default function ContentPage() {
       {/* Library Browser */}
       <div className="panel-card overflow-hidden">
         <div className="px-5 py-3.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setActiveTab('tracks')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
@@ -335,11 +370,21 @@ export default function ContentPage() {
               onClick={() => setActiveTab('cars')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
                 activeTab === 'cars'
-                  ? 'bg-red-600/20 text-red-300 border border-red-500/40'
+                  ? 'bg-sky-600/20 text-sky-300 border border-sky-500/40'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Car className="w-3.5 h-3.5" /> Arabalar ({cars.length})
+              <Car className="w-3.5 h-3.5" /> Oyuncu Arabaları ({playerCars.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('traffic')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
+                activeTab === 'traffic'
+                  ? 'bg-amber-600/20 text-amber-300 border border-amber-500/40'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Bot className="w-3.5 h-3.5" /> Trafik Araçları ({trafficCars.length})
             </button>
           </div>
 
@@ -439,11 +484,15 @@ export default function ContentPage() {
                 ))}
               </div>
             )
-          ) : filteredCars.length === 0 ? (
-            <div className="text-center text-slate-400 text-sm py-8">Araba bulunamadı.</div>
+          ) : displayedCars.length === 0 ? (
+            <div className="text-center text-slate-400 text-sm py-8">
+              {activeTab === 'traffic'
+                ? 'Henüz AI Trafik / NPC aracı bulunmuyor. Yüklerken "Trafik Pack / NPC Aracı" seçebilir veya mevcut bir arabanın kartındaki butondan "AI Trafik" olarak işaretleyebilirsiniz.'
+                : 'Oyuncu arabası bulunamadı.'}
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredCars.map((c) => (
+              {displayedCars.map((c) => (
                 <div
                   key={c.id}
                   className="rounded-xl bg-[#090d14] border border-slate-800 overflow-hidden flex flex-col"
@@ -481,18 +530,42 @@ export default function ContentPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs">
-                      <button
-                        onClick={() => toggleKunos('cars', c.id, c.is_kunos)}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] ${
-                          c.is_kunos
-                            ? 'bg-blue-500/20 text-blue-300'
-                            : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        {c.is_kunos ? 'Kunos (Oyunla Gelir)' : 'Özel Mod'}
-                      </button>
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 text-xs">
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => toggleTraffic(c.id, c.is_traffic)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition ${
+                            c.is_traffic
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30'
+                              : 'bg-sky-500/15 text-sky-300 border border-sky-500/30 hover:bg-sky-500/25'
+                          }`}
+                          title="Tek tıkla Oyuncu Aracı / AI Trafik arasında değiştir"
+                        >
+                          {c.is_traffic ? (
+                            <>
+                              <Bot className="w-3.5 h-3.5" /> AI Trafik
+                            </>
+                          ) : (
+                            <>
+                              <Car className="w-3.5 h-3.5" /> Oyuncu
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => toggleKunos('cars', c.id, c.is_kunos)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] ${
+                            c.is_kunos
+                              ? 'bg-blue-500/20 text-blue-300'
+                              : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                          title="Orijinal Kunos içeriği durumunu değiştir"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          {c.is_kunos ? 'Kunos' : 'Mod'}
+                        </button>
+                      </div>
+
                       <div className="flex gap-1">
                         <a
                           href={`/api/public/dl/car/${encodeURIComponent(c.id)}`}

@@ -75,6 +75,8 @@ export default function ServerFormModal({
   const [autoStart, setAutoStart] = useState(!isEdit);
 
   const [carSearch, setCarSearch] = useState('');
+  const [showTrafficInPlayerList, setShowTrafficInPlayerList] = useState(false);
+  const [showAllCarsInTrafficList, setShowAllCarsInTrafficList] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -213,18 +215,39 @@ export default function ServerFormModal({
     }
   };
 
-  const filteredCars = cars.filter(
-    (c) =>
+  const hasMarkedTrafficCars = cars.some((c) => c.is_traffic);
+
+  // Exclude AI traffic cars from player car picker by default so they don't clutter the list
+  const filteredCars = cars.filter((c) => {
+    if (c.is_traffic && !showTrafficInPlayerList && !selectedCarIds.includes(c.id)) {
+      return false;
+    }
+    return (
       c.name.toLowerCase().includes(carSearch.toLowerCase()) ||
       c.id.toLowerCase().includes(carSearch.toLowerCase()) ||
       c.brand.toLowerCase().includes(carSearch.toLowerCase())
-  );
+    );
+  });
 
-  const filteredTrafficCars = cars.filter(
-    (c) =>
-      c.name.toLowerCase().includes(trafficCarSearch.toLowerCase()) ||
-      c.id.toLowerCase().includes(trafficCarSearch.toLowerCase()) ||
-      c.brand.toLowerCase().includes(trafficCarSearch.toLowerCase())
+  // Prioritize marked AI traffic cars in traffic picker
+  const filteredTrafficCars = cars
+    .filter((c) => {
+      if (hasMarkedTrafficCars && !showAllCarsInTrafficList && !c.is_traffic && !trafficCarIds.includes(c.id)) {
+        return false;
+      }
+      return (
+        c.name.toLowerCase().includes(trafficCarSearch.toLowerCase()) ||
+        c.id.toLowerCase().includes(trafficCarSearch.toLowerCase()) ||
+        c.brand.toLowerCase().includes(trafficCarSearch.toLowerCase())
+      );
+    })
+    .sort((a, b) => Number(b.is_traffic) - Number(a.is_traffic));
+
+  const playerPacks = packs.filter(
+    (p) => p.category !== 'traffic' || selectedPackIds.includes(p.id)
+  );
+  const sortedTrafficPacks = [...packs].sort(
+    (a, b) => Number(b.category === 'traffic') - Number(a.category === 'traffic')
   );
 
   const ufwPreview = `sudo ufw allow ${udpPort}/udp && sudo ufw allow ${tcpPort}/tcp && sudo ufw allow ${httpPort}/tcp`;
@@ -447,15 +470,15 @@ export default function ServerFormModal({
             </div>
           </div>
 
-          {/* Packs */}
-          {packs.length > 0 && (
+          {/* Packs (Player / General Packs) */}
+          {playerPacks.length > 0 && (
             <div>
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-2">
                 <Boxes className="w-3.5 h-3.5 text-purple-400" />
                 Pack Bağla ({selectedPackIds.length} seçili)
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {packs.map((pack) => {
+                {playerPacks.map((pack) => {
                   const active = selectedPackIds.includes(pack.id);
                   return (
                     <button
@@ -538,18 +561,31 @@ export default function ServerFormModal({
 
           {/* Cars Picker */}
           <div>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <Car className="w-3.5 h-3.5 text-sky-400" />
                 Oyuncu Arabaları Seç ({selectedCarIds.length} seçili)
               </label>
-              <input
-                type="text"
-                value={carSearch}
-                onChange={(e) => setCarSearch(e.target.value)}
-                placeholder="Araba ara..."
-                className="bg-[#090d14] border border-slate-700 rounded-lg px-3 py-1 text-xs text-slate-200 w-48"
-              />
+              <div className="flex items-center gap-3">
+                {hasMarkedTrafficCars && (
+                  <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showTrafficInPlayerList}
+                      onChange={(e) => setShowTrafficInPlayerList(e.target.checked)}
+                      className="w-3.5 h-3.5 accent-amber-500"
+                    />
+                    Trafik araçlarını da göster
+                  </label>
+                )}
+                <input
+                  type="text"
+                  value={carSearch}
+                  onChange={(e) => setCarSearch(e.target.value)}
+                  placeholder="Araba ara..."
+                  className="bg-[#090d14] border border-slate-700 rounded-lg px-3 py-1 text-xs text-slate-200 w-44"
+                />
+              </div>
             </div>
 
             {cars.length === 0 ? (
@@ -652,13 +688,13 @@ export default function ServerFormModal({
                       arabaları trafikte kullanılır.)
                     </p>
 
-                    {packs.length > 0 && (
+                    {sortedTrafficPacks.length > 0 && (
                       <div>
                         <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                           Sadece AI Trafik Pack&apos;i Seç ({trafficPackIds.length} seçili)
                         </label>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {packs.map((pack) => {
+                          {sortedTrafficPacks.map((pack) => {
                             const active = trafficPackIds.includes(pack.id);
                             return (
                               <button
@@ -672,7 +708,14 @@ export default function ServerFormModal({
                                 }`}
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="font-semibold truncate">{pack.name}</span>
+                                  <span className="font-semibold truncate flex items-center gap-1.5">
+                                    {pack.name}
+                                    {pack.category === 'traffic' && (
+                                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                                        Trafik Pack
+                                      </span>
+                                    )}
+                                  </span>
                                   <span className="text-[10px] text-slate-400 shrink-0">
                                     {pack.car_ids.length} araba
                                   </span>
@@ -686,17 +729,43 @@ export default function ServerFormModal({
 
                     {cars.length > 0 && (
                       <div>
-                        <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                           <label className="text-xs font-semibold text-slate-300">
                             Sadece AI Trafik Arabaları ({trafficCarIds.length} seçili)
                           </label>
-                          <input
-                            type="text"
-                            value={trafficCarSearch}
-                            onChange={(e) => setTrafficCarSearch(e.target.value)}
-                            placeholder="Trafik aracı ara..."
-                            className="bg-[#0c111b] border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 w-44"
-                          />
+                          <div className="flex flex-wrap items-center gap-2">
+                            {hasMarkedTrafficCars && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setTrafficCarIds(
+                                      cars.filter((c) => c.is_traffic).map((c) => c.id)
+                                    )
+                                  }
+                                  className="text-[11px] text-amber-400 hover:text-amber-300"
+                                >
+                                  Tüm Trafik Araçlarını Seç
+                                </button>
+                                <label className="inline-flex items-center gap-1 text-[11px] text-slate-400 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={showAllCarsInTrafficList}
+                                    onChange={(e) => setShowAllCarsInTrafficList(e.target.checked)}
+                                    className="w-3.5 h-3.5 accent-amber-500"
+                                  />
+                                  Tüm arabalar
+                                </label>
+                              </>
+                            )}
+                            <input
+                              type="text"
+                              value={trafficCarSearch}
+                              onChange={(e) => setTrafficCarSearch(e.target.value)}
+                              placeholder="Trafik aracı ara..."
+                              className="bg-[#0c111b] border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 w-40"
+                            />
+                          </div>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-40 overflow-y-auto p-1">
                           {filteredTrafficCars.map((car) => {
@@ -712,7 +781,14 @@ export default function ServerFormModal({
                                     : 'bg-[#0c111b] border-slate-800 text-slate-300 hover:border-slate-700'
                                 }`}
                               >
-                                <div className="font-semibold truncate">{car.name}</div>
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="font-semibold truncate">{car.name}</span>
+                                  {car.is_traffic && (
+                                    <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 shrink-0">
+                                      AI
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="text-[10px] text-slate-400 truncate">{car.id}</div>
                               </button>
                             );

@@ -20,6 +20,7 @@ async function importArchiveIntoLibrary(params: {
   archivePath: string;
   hintType?: 'car' | 'track' | 'pack';
   markKunos?: boolean;
+  markTraffic?: boolean;
   version?: string;
   createPackName?: string;
   packDescription?: string;
@@ -63,11 +64,13 @@ async function importArchiveIntoLibrary(params: {
       });
 
       const isKunos = params.markKunos ? 1 : car.isKunos ? 1 : 0;
+      const isTraffic =
+        params.markTraffic || params.packCategory === 'traffic' || car.isTraffic ? 1 : 0;
       const version = params.version?.trim() || sha256.slice(0, 8);
 
       db.prepare(
-        `INSERT INTO cars (id, name, brand, car_class, specs_json, skins_json, is_kunos, version, sha256, download_path, download_size, has_preview)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO cars (id, name, brand, car_class, specs_json, skins_json, is_kunos, is_traffic, version, sha256, download_path, download_size, has_preview)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            brand = excluded.brand,
@@ -75,6 +78,7 @@ async function importArchiveIntoLibrary(params: {
            specs_json = excluded.specs_json,
            skins_json = excluded.skins_json,
            is_kunos = excluded.is_kunos,
+           is_traffic = excluded.is_traffic,
            version = excluded.version,
            sha256 = excluded.sha256,
            download_path = excluded.download_path,
@@ -88,6 +92,7 @@ async function importArchiveIntoLibrary(params: {
         JSON.stringify(car.specs),
         JSON.stringify(car.skins),
         isKunos,
+        isTraffic,
         version,
         sha256,
         zipRelPath,
@@ -179,11 +184,13 @@ async function importArchiveIntoLibrary(params: {
 
       const category =
         params.packCategory ||
-        (importedCars.length > 0 && importedTracks.length > 0
-          ? 'mixed'
-          : importedTracks.length > 0
-            ? 'tracks'
-            : 'cars');
+        (params.markTraffic
+          ? 'traffic'
+          : importedCars.length > 0 && importedTracks.length > 0
+            ? 'mixed'
+            : importedTracks.length > 0
+              ? 'tracks'
+              : 'cars');
 
       db.prepare(
         `INSERT INTO packs (id, slug, name, description, category, car_ids_json, track_ids_json, extra_cfg_yml, csp_extra_options, version, sha256, download_path, download_size)
@@ -228,6 +235,7 @@ export async function contentRoutes(app: FastifyInstance) {
         specs: JSON.parse(c.specs_json || '{}'),
         skins: JSON.parse(c.skins_json || '[]'),
         is_kunos: Boolean(c.is_kunos),
+        is_traffic: Boolean(c.is_traffic),
         has_preview: Boolean(c.has_preview),
       })),
     };
@@ -254,6 +262,7 @@ export async function contentRoutes(app: FastifyInstance) {
     let savedArchivePath = '';
     let hintType: 'car' | 'track' | 'pack' | undefined;
     let markKunos = false;
+    let markTraffic = false;
     let version = '';
     let createPackName = '';
     let packDescription = '';
@@ -272,6 +281,8 @@ export async function contentRoutes(app: FastifyInstance) {
             hintType = val;
           } else if (part.fieldname === 'is_kunos') {
             markKunos = val === 'true' || val === '1';
+          } else if (part.fieldname === 'is_traffic') {
+            markTraffic = val === 'true' || val === '1';
           } else if (part.fieldname === 'version') {
             version = val;
           } else if (part.fieldname === 'pack_name') {
@@ -292,6 +303,7 @@ export async function contentRoutes(app: FastifyInstance) {
         archivePath: savedArchivePath,
         hintType,
         markKunos,
+        markTraffic,
         version,
         createPackName,
         packDescription,
@@ -317,9 +329,11 @@ export async function contentRoutes(app: FastifyInstance) {
       url: z.string().url('Geçerli bir indirme bağlantısı (URL) girin.'),
       type: z.enum(['car', 'track', 'pack']).optional(),
       is_kunos: z.boolean().optional(),
+      is_traffic: z.boolean().optional(),
       version: z.string().optional(),
       pack_name: z.string().optional(),
       pack_description: z.string().optional(),
+      pack_category: z.string().optional(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {
@@ -356,9 +370,11 @@ export async function contentRoutes(app: FastifyInstance) {
         archivePath: tmpFile,
         hintType: parsed.data.type,
         markKunos: parsed.data.is_kunos,
+        markTraffic: parsed.data.is_traffic,
         version: parsed.data.version,
         createPackName: parsed.data.pack_name,
         packDescription: parsed.data.pack_description,
+        packCategory: parsed.data.pack_category,
       });
 
       return { success: true, ...result };
@@ -395,10 +411,11 @@ export async function contentRoutes(app: FastifyInstance) {
         hasPreview = 1;
       }
       db.prepare(
-        `INSERT INTO cars (id, name, brand, car_class, specs_json, skins_json, is_kunos, version, sha256, download_path, download_size, has_preview)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO cars (id, name, brand, car_class, specs_json, skins_json, is_kunos, is_traffic, version, sha256, download_path, download_size, has_preview)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, brand = excluded.brand, skins_json = excluded.skins_json,
+           is_traffic = CASE WHEN cars.is_traffic = 1 THEN 1 ELSE excluded.is_traffic END,
            sha256 = excluded.sha256, download_path = excluded.download_path,
            download_size = excluded.download_size, has_preview = excluded.has_preview`
       ).run(
@@ -409,6 +426,7 @@ export async function contentRoutes(app: FastifyInstance) {
         JSON.stringify(car.specs),
         JSON.stringify(car.skins),
         car.isKunos ? 1 : 0,
+        car.isTraffic ? 1 : 0,
         sha256.slice(0, 8),
         sha256,
         zipRelPath,
@@ -468,18 +486,22 @@ export async function contentRoutes(app: FastifyInstance) {
     const schema = z.object({
       name: z.string().min(1).optional(),
       is_kunos: z.boolean().optional(),
+      is_traffic: z.boolean().optional(),
       version: z.string().min(1).optional(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Geçersiz güncelleme verisi.' });
 
     const db = getDb();
-    const car = db.prepare('SELECT * FROM cars WHERE id = ?').get(id) as CarRecord | undefined;
+    const car = db.prepare('SELECT * FROM cars WHERE id = ?').get(id) as unknown as
+      | CarRecord
+      | undefined;
     if (!car) return reply.code(404).send({ error: 'Araba bulunamadı.' });
 
-    db.prepare('UPDATE cars SET name = ?, is_kunos = ?, version = ? WHERE id = ?').run(
+    db.prepare('UPDATE cars SET name = ?, is_kunos = ?, is_traffic = ?, version = ? WHERE id = ?').run(
       parsed.data.name ?? car.name,
       parsed.data.is_kunos !== undefined ? (parsed.data.is_kunos ? 1 : 0) : car.is_kunos,
+      parsed.data.is_traffic !== undefined ? (parsed.data.is_traffic ? 1 : 0) : car.is_traffic,
       parsed.data.version ?? car.version,
       id
     );

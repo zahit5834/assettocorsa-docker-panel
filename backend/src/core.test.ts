@@ -14,6 +14,7 @@ import {
 import {
   createCmArchive,
   createMultiContentBundleZip,
+  detectTrafficCar,
   isPathInside,
   parseRelaxedJson,
   scanExtractedDirectory,
@@ -99,6 +100,7 @@ describe('configGenerator', () => {
         specs_json: '{}',
         skins_json: '["black","white"]',
         is_kunos: 0,
+        is_traffic: 0,
         version: '1.0',
         sha256: 'abc',
         download_path: 'downloads/cars/bmw_m3_e92.zip',
@@ -115,6 +117,7 @@ describe('configGenerator', () => {
       specs_json: '{}',
       skins_json: '["white"]',
       is_kunos: 0,
+      is_traffic: 1,
       version: '1.0',
       sha256: 'xyz',
       download_path: 'downloads/cars/traffic_van_ai.zip',
@@ -211,6 +214,25 @@ describe('contentScanner & archive packaging', () => {
     const parsed = parseRelaxedJson<{ name: string; brand: string }>(f);
     expect(parsed?.name).toBe('Supra MK4');
     expect(parsed?.brand).toBe('Toyota');
+  });
+
+  it('auto-detects AI traffic / NPC cars without false positives on regular car names', () => {
+    // Positive detections (folder id & ui_car.json)
+    expect(detectTrafficCar('srp_traffic_honda_fit', null)).toBe(true);
+    expect(detectTrafficCar('a3pp_ai_civic', null)).toBe(true);
+    expect(detectTrafficCar('npc_delivery_van', null)).toBe(true);
+    expect(detectTrafficCar('custom_sedan', { name: 'Toyota Prius (AI)' })).toBe(true);
+    expect(detectTrafficCar('custom_sedan', { tags: ['street', 'traffic'] })).toBe(true);
+    expect(detectTrafficCar('custom_sedan', { class: 'NPC' })).toBe(true);
+
+    // Negative cases (must NOT false-positive on "ferrari", "fairlady", "cayman", "air")
+    expect(detectTrafficCar('ferrari_458_gt2', { name: 'Ferrari 458 GT2', brand: 'Ferrari' })).toBe(
+      false
+    );
+    expect(
+      detectTrafficCar('nissan_fairlady_z', { name: 'Nissan Fairlady Z', brand: 'Nissan' })
+    ).toBe(false);
+    expect(detectTrafficCar('ks_porsche_cayman_gt4', { name: 'Porsche Cayman GT4' })).toBe(false);
   });
 
   it('detects nested cars, multi-layout tracks with AI splines, and creates CM-ready zips', async () => {
