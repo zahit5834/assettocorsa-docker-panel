@@ -279,6 +279,7 @@ export function writeServerConfigFiles(db: DatabaseSync, server: ServerRecord): 
     cars: resolved.cars,
     publicIp,
     panelPort,
+    trafficConfig: trafficCfg,
     extraSnippet: resolved.packCspExtra,
   });
 

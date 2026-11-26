@@ -12,6 +12,7 @@ import {
   Package,
   Play,
   ShieldCheck,
+  Trophy,
   Users,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -106,6 +107,12 @@ export default function PublicJoinPage() {
             {server.trafficEnabled && (
               <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
                 AI Trafik Aktif
+              </span>
+            )}
+
+            {server.overtakeEnabled && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-red-500/15 text-red-300 border border-red-500/30">
+                <Trophy className="w-3 h-3" /> Makas &amp; Hız Skoru
               </span>
             )}
 
@@ -215,6 +222,56 @@ export default function PublicJoinPage() {
               <Download className="w-4 h-4" /> Tüm Modları İndir
             </a>
           </div>
+        )}
+
+        {/* Overtake / Makas Leaderboard */}
+        {data.leaderboard && data.leaderboard.length > 0 && (
+          <section className="panel-card p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-amber-400" /> Makas &amp; Hız Liderlik Tablosu
+              </h2>
+              <span className="text-xs text-slate-400">Canlı Sunucu Rekorları</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs sm:text-sm text-left">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400">
+                    <th className="py-2 pr-3">#</th>
+                    <th className="py-2 pr-3">Sürücü</th>
+                    <th className="py-2 pr-3">Araç</th>
+                    <th className="py-2 pr-3 text-right">Skor</th>
+                    <th className="py-2 pr-3 text-right">Makas</th>
+                    <th className="py-2 pr-3 text-right">Max Combo</th>
+                    <th className="py-2 text-right">Max Hız</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {data.leaderboard.map((row, idx) => (
+                    <tr key={`${row.driver_name}-${idx}`} className="hover:bg-slate-800/30">
+                      <td className="py-2.5 pr-3 font-mono font-bold text-amber-400">#{idx + 1}</td>
+                      <td className="py-2.5 pr-3 font-semibold text-white">{row.driver_name}</td>
+                      <td className="py-2.5 pr-3 font-mono text-xs text-slate-400">
+                        {row.car_id || '-'}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono font-bold text-emerald-400">
+                        {row.score.toLocaleString('tr-TR')}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-slate-200">
+                        {row.overtakes}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-amber-300">
+                        x{Number(row.max_combo || 1).toFixed(1)}
+                      </td>
+                      <td className="py-2.5 text-right font-mono text-sky-300">
+                        {row.max_speed_kmh} km/h
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
 
         {/* Required Track */}

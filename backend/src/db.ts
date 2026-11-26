@@ -57,6 +57,18 @@ export interface PackRecord {
   updated_at: string;
 }
 
+export interface OvertakeScoreRecord {
+  id: number;
+  server_id: string;
+  driver_name: string;
+  car_id: string;
+  score: number;
+  max_combo: number;
+  max_speed_kmh: number;
+  overtakes: number;
+  updated_at: string;
+}
+
 export interface ServerRecord {
   id: string;
   slug: string;
@@ -219,6 +231,19 @@ function initSchema(db: DatabaseSync) {
       cpu_limit REAL NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS overtake_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      server_id TEXT NOT NULL,
+      driver_name TEXT NOT NULL,
+      car_id TEXT NOT NULL DEFAULT '',
+      score INTEGER NOT NULL DEFAULT 0,
+      max_combo REAL NOT NULL DEFAULT 1,
+      max_speed_kmh INTEGER NOT NULL DEFAULT 0,
+      overtakes INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(server_id, driver_name)
     );
   `);
 

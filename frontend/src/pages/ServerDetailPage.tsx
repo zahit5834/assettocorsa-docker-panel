@@ -18,6 +18,7 @@ import {
   Square,
   Terminal,
   Trash2,
+  Trophy,
   Upload,
   Users,
   XCircle,
@@ -31,6 +32,7 @@ import {
   formatBytes,
   getToken,
   uploadWithProgress,
+  type OvertakeScoreItem,
   type ServerItem,
 } from '../lib/api';
 
@@ -62,7 +64,8 @@ const CONFIG_TABS = [
 export default function ServerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [server, setServer] = useState<ServerItem | null>(null);
-  const [tab, setTab] = useState<'console' | 'files' | 'players' | 'lists' | 'plugins'>('console');
+  const [tab, setTab] = useState<'console' | 'files' | 'players' | 'lists' | 'plugins' | 'leaderboard'>('console');
+  const [leaderboard, setLeaderboard] = useState<OvertakeScoreItem[]>([]);
   const [files, setFiles] = useState<Record<string, string>>({});
   const [activeFile, setActiveFile] = useState<(typeof CONFIG_TABS)[number]>('server_cfg.ini');
   const [logs, setLogs] = useState('');
@@ -92,11 +95,14 @@ export default function ServerDetailPage() {
 
   const load = async () => {
     if (!id) return;
-    const [srvRes, filesRes, listsRes, pluginsRes] = await Promise.all([
+    const [srvRes, filesRes, listsRes, pluginsRes, lbRes] = await Promise.all([
       apiFetch<{ server: ServerItem }>(`/api/servers/${id}`),
       apiFetch<{ files: Record<string, string> }>(`/api/servers/${id}/files`),
       apiFetch<{ admins: string; whitelist: string; blacklist: string }>(`/api/servers/${id}/lists`),
       apiFetch<{ plugins: PluginEntry[] }>(`/api/servers/${id}/plugins`),
+      apiFetch<{ scores: OvertakeScoreItem[] }>(`/api/servers/${id}/leaderboard`).catch(() => ({
+        scores: [],
+      })),
     ]);
     setServer(srvRes.server);
     setFiles(filesRes.files);
@@ -104,6 +110,7 @@ export default function ServerDetailPage() {
     setWhitelistTxt(listsRes.whitelist);
     setBlacklistTxt(listsRes.blacklist);
     setPlugins(pluginsRes.plugins);
+    setLeaderboard(lbRes.scores);
   };
 
   useEffect(() => {
@@ -571,6 +578,18 @@ export default function ServerDetailPage() {
               <Puzzle className="w-4 h-4" /> Pluginler ({plugins.length})
             </button>
           )}
+          {server.engine === 'assettoserver' && (
+            <button
+              onClick={() => setTab('leaderboard')}
+              className={`px-5 py-3 text-sm font-medium inline-flex items-center gap-2 border-b-2 transition ${
+                tab === 'leaderboard'
+                  ? 'border-red-500 text-white'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Trophy className="w-4 h-4 text-amber-400" /> Makas Skoru ({leaderboard.length})
+            </button>
+          )}
         </div>
 
         {tab === 'console' && (
@@ -744,6 +763,85 @@ export default function ServerDetailPage() {
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'leaderboard' && (
+          <div className="p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-amber-400" /> Oyun İçi Makas &amp; Hız Skoru Liderlik Tablosu
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Durum:{' '}
+                  {server.traffic_config?.overtakeEnabled ? (
+                    <span className="text-emerald-400 font-semibold">
+                      Aktif (Min. {server.traffic_config?.overtakeMinSpeedKmh ?? 80} km/h)
+                    </span>
+                  ) : (
+                    <span className="text-amber-300">
+                      Kapalı — Düzenle menüsünden &quot;Oyun İçi Makas &amp; Hız Skoru HUD Aktif&quot; kutusunu açıp sunucuyu yeniden başlatın.
+                    </span>
+                  )}
+                </p>
+              </div>
+              {leaderboard.length > 0 && (
+                <button
+                  onClick={async () => {
+                    if (!id || !confirm('Tüm makas skorları silinsin mi?')) return;
+                    await apiFetch(`/api/servers/${id}/leaderboard`, { method: 'DELETE' });
+                    await load();
+                  }}
+                  className="btn-secondary text-xs text-red-400"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Skorları Sıfırla
+                </button>
+              )}
+            </div>
+
+            {leaderboard.length === 0 ? (
+              <div className="text-sm text-slate-400 py-6 text-center bg-[#090d14] border border-slate-800 rounded-xl">
+                Henüz kayıtlı makas skoru yok. Sunucuda 80+ km/h hızla trafikte makas attıkça rekorlar otomatik burada ve davet sayfasında görünür.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
+                      <th className="py-2 pr-3">#</th>
+                      <th className="py-2 pr-3">Sürücü</th>
+                      <th className="py-2 pr-3">Araç</th>
+                      <th className="py-2 pr-3 text-right">Skor</th>
+                      <th className="py-2 pr-3 text-right">Makas</th>
+                      <th className="py-2 pr-3 text-right">Max Combo</th>
+                      <th className="py-2 text-right">Max Hız</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {leaderboard.map((row, idx) => (
+                      <tr key={`${row.driver_name}-${idx}`}>
+                        <td className="py-2 pr-3 font-mono font-bold text-amber-400">#{idx + 1}</td>
+                        <td className="py-2 pr-3 font-semibold text-white">{row.driver_name}</td>
+                        <td className="py-2 pr-3 font-mono text-slate-400">{row.car_id || '-'}</td>
+                        <td className="py-2 pr-3 text-right font-mono font-bold text-emerald-400">
+                          {row.score.toLocaleString('tr-TR')}
+                        </td>
+                        <td className="py-2 pr-3 text-right font-mono text-slate-200">
+                          {row.overtakes}
+                        </td>
+                        <td className="py-2 pr-3 text-right font-mono text-amber-300">
+                          x{Number(row.max_combo || 1).toFixed(1)}
+                        </td>
+                        <td className="py-2 text-right font-mono text-sky-300">
+                          {row.max_speed_kmh} km/h
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

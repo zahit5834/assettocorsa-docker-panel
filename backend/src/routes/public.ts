@@ -2,10 +2,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { getDataPaths } from '../config.js';
-import { generateJoinLinks, safeJsonParse } from '../configGenerator.js';
+import { generateJoinLinks, safeJsonParse, type TrafficConfig } from '../configGenerator.js';
 import { createMultiContentBundleZip } from '../contentScanner.js';
-import { getDb, getSetting, type CarRecord, type PackRecord, type ServerRecord, type TrackRecord } from '../db.js';
+import {
+  getDb,
+  getSetting,
+  type CarRecord,
+  type OvertakeScoreRecord,
+  type PackRecord,
+  type ServerRecord,
+  type TrackRecord,
+} from '../db.js';
 import { dockerManager } from '../dockerManager.js';
+import { generateOvertakeLuaScript } from '../overtakeScript.js';
 import { resolveServerContent } from '../serverService.js';
 
 const IS_DOCKER = fs.existsSync('/.dockerenv');
@@ -138,6 +147,13 @@ export async function publicRoutes(app: FastifyInstance) {
     const totalEstimatedSize =
       (downloadableTrack?.downloadSize || 0) +
       downloadableCars.reduce((acc, c) => acc + c.downloadSize, 0);
+    const trafficCfg = safeJsonParse<Partial<TrafficConfig>>(server.traffic_config_json, {});
+    const leaderboard = db
+      .prepare(
+        `SELECT driver_name, car_id, score, max_combo, max_speed_kmh, overtakes, updated_at
+         FROM overtake_scores WHERE server_id = ? ORDER BY score DESC LIMIT 10`
+      )
+      .all(server.id) as unknown as OvertakeScoreRecord[];
 
     return {
       server: {
@@ -157,6 +173,7 @@ export async function publicRoutes(app: FastifyInstance) {
         tcpPort: server.tcp_port,
         httpPort: server.http_port,
         trafficEnabled: Boolean(server.traffic_enabled),
+        overtakeEnabled: Boolean(trafficCfg.overtakeEnabled),
         cmAutodownload: Boolean(server.cm_autodownload),
         publicIp,
         panelPort,
@@ -172,6 +189,7 @@ export async function publicRoutes(app: FastifyInstance) {
       track: trackInfo,
       cars: carsInfo,
       packs: packsInfo,
+      leaderboard,
       bundle: {
         available: downloadableCars.length > 0 || Boolean(downloadableTrack),
         downloadableCount: downloadableCars.length + (downloadableTrack ? 1 : 0),
@@ -267,6 +285,103 @@ export async function publicRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'image/jpeg');
     reply.header('Cache-Control', 'public, max-age=86400');
     return reply.send(fs.createReadStream(file));
+  });
+
+  // CSP Online Script endpoint for in-game Makas & Hiz Skoru HUD
+  app.get('/api/public/scripts/:slug/overtake.lua', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const db = getDb();
+    const server = db
+      .prepare('SELECT * FROM servers WHERE slug = ? OR id = ?')
+      .get(slug, slug) as ServerRecord | undefined;
+    if (!server) {
+      return reply.code(404).type('text/plain').send('-- Server not found\n');
+    }
+    const publicIp = getSetting(db, 'public_ip', '127.0.0.1');
+    const panelPort = Number(getSetting(db, 'panel_port', '5829'));
+    const trafficCfg = safeJsonParse<Partial<TrafficConfig>>(server.traffic_config_json, {});
+    const lua = generateOvertakeLuaScript({
+      serverSlug: server.slug,
+      serverName: server.name,
+      minSpeedKmh: trafficCfg.overtakeMinSpeedKmh ?? 80,
+      apiBaseUrl: `http://${publicIp}:${panelPort}`,
+    });
+    reply.header('Content-Type', 'text/plain; charset=utf-8');
+    reply.header('Cache-Control', 'no-cache');
+    return reply.send(lua);
+  });
+
+  // Public Overtake Leaderboard (consumed by both in-game Lua HUD and /join/:slug page)
+  app.get('/api/public/overtake/:slug/leaderboard', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const db = getDb();
+    const server = db
+      .prepare('SELECT id, name, slug FROM servers WHERE slug = ? OR id = ?')
+      .get(slug, slug) as Pick<ServerRecord, 'id' | 'name' | 'slug'> | undefined;
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const scores = db
+      .prepare(
+        `SELECT driver_name, car_id, score, max_combo, max_speed_kmh, overtakes, updated_at
+         FROM overtake_scores WHERE server_id = ? ORDER BY score DESC LIMIT 20`
+      )
+      .all(server.id) as unknown as OvertakeScoreRecord[];
+    return { server: server.name, scores };
+  });
+
+  // Submit Overtake Score from in-game CSP Lua script
+  const scoreRateLimit = new Map<string, number>();
+  app.post('/api/public/overtake/:slug/score', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const ip = request.ip || 'unknown';
+    const now = Date.now();
+    const last = scoreRateLimit.get(ip) || 0;
+    if (now - last < 2000) {
+      return reply.code(429).send({ error: 'Çok hızlı istek.' });
+    }
+    scoreRateLimit.set(ip, now);
+
+    const db = getDb();
+    const server = db
+      .prepare('SELECT id FROM servers WHERE slug = ? OR id = ?')
+      .get(slug, slug) as Pick<ServerRecord, 'id'> | undefined;
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const body = (request.body || {}) as Record<string, unknown>;
+    const rawName = String(body.driverName || '').trim().slice(0, 48);
+    const driverName = rawName.replace(/[\r\n\t]/g, ' ') || 'Sürücü';
+    const carId = String(body.carId || '').trim().slice(0, 64);
+    const score = Math.floor(Number(body.score) || 0);
+    const maxCombo = Math.max(1, Math.min(20, Number(body.maxCombo) || 1));
+    const maxSpeedKmh = Math.max(0, Math.min(600, Math.floor(Number(body.maxSpeedKmh) || 0)));
+    const overtakes = Math.max(0, Math.min(5000, Math.floor(Number(body.overtakes) || 0)));
+
+    if (score < 100 || score > 50_000_000) {
+      return reply.code(400).send({ error: 'Geçersiz skor.' });
+    }
+
+    const existing = db
+      .prepare('SELECT score FROM overtake_scores WHERE server_id = ? AND driver_name = ?')
+      .get(server.id, driverName) as { score: number } | undefined;
+
+    if (!existing) {
+      db.prepare(
+        `INSERT INTO overtake_scores (server_id, driver_name, car_id, score, max_combo, max_speed_kmh, overtakes, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+      ).run(server.id, driverName, carId, score, maxCombo, maxSpeedKmh, overtakes);
+      return { success: true, isNewBest: true };
+    }
+
+    if (score > existing.score) {
+      db.prepare(
+        `UPDATE overtake_scores
+         SET car_id = ?, score = ?, max_combo = ?, max_speed_kmh = ?, overtakes = ?, updated_at = datetime('now')
+         WHERE server_id = ? AND driver_name = ?`
+      ).run(carId, score, maxCombo, maxSpeedKmh, overtakes, server.id, driverName);
+      return { success: true, isNewBest: true };
+    }
+
+    return { success: true, isNewBest: false };
   });
 
   app.get('/api/public/preview/track/:id', async (request, reply) => {

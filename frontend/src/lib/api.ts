@@ -106,6 +106,9 @@ export interface ServerItem {
     maxSafetyDistanceMeters?: number;
     stateSpawnDistanceMeters?: number;
     twoWayTraffic?: boolean;
+    overtakeEnabled?: boolean;
+    overtakeMinSpeedKmh?: number;
+    customScriptUrl?: string;
     trafficCars: string[];
     trafficPackIds?: string[];
     welcomeMessage?: string;
@@ -181,6 +184,17 @@ export interface SystemOverview {
   settings: Record<string, string>;
 }
 
+export interface OvertakeScoreItem {
+  id?: number;
+  driver_name: string;
+  car_id: string;
+  score: number;
+  max_combo: number;
+  max_speed_kmh: number;
+  overtakes: number;
+  updated_at: string;
+}
+
 export interface PublicJoinPayload {
   server: {
     id: string;
@@ -199,6 +213,7 @@ export interface PublicJoinPayload {
     tcpPort: number;
     httpPort: number;
     trafficEnabled: boolean;
+    overtakeEnabled?: boolean;
     cmAutodownload: boolean;
     publicIp: string;
     panelPort: number;
@@ -255,6 +270,7 @@ export interface PublicJoinPayload {
     downloadSize: number;
     downloadUrl: string | null;
   }>;
+  leaderboard?: OvertakeScoreItem[];
   bundle: {
     available: boolean;
     downloadableCount: number;

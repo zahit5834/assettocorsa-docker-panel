@@ -22,6 +22,7 @@ import {
 } from './contentScanner.js';
 import { getDb, type CarRecord, type ServerRecord, type TrackRecord } from './db.js';
 import { stripDockerMultiplexHeaders } from './dockerManager.js';
+import { generateOvertakeLuaScript } from './overtakeScript.js';
 import { checkPortConflicts, suggestAvailablePorts } from './serverService.js';
 
 const tempDirs: string[] = [];
@@ -370,5 +371,74 @@ describe('port conflict detection & docker log parsing', () => {
     header.writeUInt32BE(payload.length, 4);
     const frame = Buffer.concat([header, payload]);
     expect(stripDockerMultiplexHeaders(frame)).toBe('Hello AC Server\n');
+  });
+
+  it('generates CSP overtake script URL and valid Lua HUD code', () => {
+    const csp = generateCspExtraOptionsIni({
+      server: {
+        id: 'srv-ot',
+        slug: 'shutoko-tr',
+        name: 'TR Shutoko',
+        engine: 'assettoserver',
+        udp_port: 9600,
+        tcp_port: 9600,
+        http_port: 8081,
+        password: '',
+        admin_password: 'admin',
+        max_clients: 16,
+        track_id: 'shuto_revival_project_beta',
+        track_config: '',
+        car_ids_json: '[]',
+        pack_ids_json: '[]',
+        traffic_enabled: 1,
+        traffic_config_json: '{}',
+        template: 'freeroam_traffic',
+        description: '',
+        rules_text: '',
+        banner_url: '',
+        weather_preset: '3_clear',
+        time_of_day: 'noon',
+        time_multiplier: 1,
+        cm_autodownload: 1,
+        register_to_lobby: 0,
+        bundle_sha256: '',
+        bundle_size: 0,
+        container_id: '',
+        memory_limit_mb: 0,
+        cpu_limit: 0,
+        created_at: '',
+        updated_at: '',
+      },
+      track: null,
+      cars: [],
+      publicIp: '156.233.71.74',
+      panelPort: 5829,
+      trafficConfig: {
+        maxAiPerPlayer: 35,
+        aiDensity: 25,
+        maxAiCount: 100,
+        maxSpeedKmh: 90,
+        rightLaneOffset: 0,
+        overtakeEnabled: true,
+        overtakeMinSpeedKmh: 90,
+        customScriptUrl: 'https://example.com/custom.lua',
+        trafficCars: [],
+      },
+    });
+    expect(csp).toContain('[SCRIPT_0]');
+    expect(csp).toContain("SCRIPT = 'http://156.233.71.74:5829/api/public/scripts/shutoko-tr/overtake.lua'");
+    expect(csp).toContain('[SCRIPT_1]');
+    expect(csp).toContain("SCRIPT = 'https://example.com/custom.lua'");
+
+    const lua = generateOvertakeLuaScript({
+      serverSlug: 'shutoko-tr',
+      serverName: 'TR Shutoko',
+      minSpeedKmh: 90,
+      apiBaseUrl: 'http://156.233.71.74:5829',
+    });
+    expect(lua).toContain('local MIN_SPEED = 90');
+    expect(lua).toContain('function script.update(dt)');
+    expect(lua).toContain('function script.drawUI()');
+    expect(lua).toContain('/api/public/overtake/shutoko-tr/score');
   });
 });

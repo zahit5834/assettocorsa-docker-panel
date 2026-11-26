@@ -103,6 +103,9 @@ export interface TrafficConfig {
   maxSafetyDistanceMeters?: number;
   stateSpawnDistanceMeters?: number;
   twoWayTraffic?: boolean;
+  overtakeEnabled?: boolean;
+  overtakeMinSpeedKmh?: number;
+  customScriptUrl?: string;
   trafficCars: string[];
   trafficPackIds?: string[];
   welcomeMessage?: string;
@@ -126,6 +129,9 @@ export const DEFAULT_TRAFFIC_CONFIG: TrafficConfig = {
   maxSafetyDistanceMeters: 24,
   stateSpawnDistanceMeters: 100,
   twoWayTraffic: false,
+  overtakeEnabled: false,
+  overtakeMinSpeedKmh: 80,
+  customScriptUrl: '',
   trafficCars: [],
   trafficPackIds: [],
   welcomeMessage: 'Sunucuya hoş geldiniz! Keyifli sürüşler.',
@@ -482,9 +488,10 @@ export function generateCspExtraOptionsIni(params: {
   cars: CarRecord[];
   publicIp: string;
   panelPort: number;
+  trafficConfig?: TrafficConfig;
   extraSnippet?: string;
 }): string {
-  const { server, track, cars, publicIp, panelPort, extraSnippet } = params;
+  const { server, track, cars, publicIp, panelPort, trafficConfig, extraSnippet } = params;
   const baseUrl = `http://${publicIp}:${panelPort}`;
   const lines: string[] = [
     '[EXTRA_RULES]',
@@ -495,6 +502,27 @@ export function generateCspExtraOptionsIni(params: {
     'ENABLED = 0',
     '',
   ];
+
+  // CSP Online Lua Scripts (Makas & Hiz Skoru HUD + optional custom script URL)
+  let scriptIndex = 0;
+  if (trafficConfig?.overtakeEnabled) {
+    lines.push(
+      `[SCRIPT_${scriptIndex}]`,
+      `SCRIPT = '${baseUrl}/api/public/scripts/${encodeURIComponent(server.slug)}/overtake.lua'`,
+      'REQUIRED = 0',
+      ''
+    );
+    scriptIndex++;
+  }
+  const customUrl = trafficConfig?.customScriptUrl?.trim();
+  if (customUrl && /^https?:\/\//i.test(customUrl)) {
+    lines.push(
+      `[SCRIPT_${scriptIndex}]`,
+      `SCRIPT = '${customUrl.replace(/'/g, '')}'`,
+      'REQUIRED = 0',
+      ''
+    );
+  }
 
   if (server.cm_autodownload) {
     // Content Manager missing content auto-download mapping

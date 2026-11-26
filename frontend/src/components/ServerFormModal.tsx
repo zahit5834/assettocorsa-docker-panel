@@ -90,6 +90,15 @@ export default function ServerFormModal({
   const [twoWayTraffic, setTwoWayTraffic] = useState(
     Boolean(initialServer?.traffic_config?.twoWayTraffic)
   );
+  const [overtakeEnabled, setOvertakeEnabled] = useState(
+    initialServer ? Boolean(initialServer.traffic_config?.overtakeEnabled) : true
+  );
+  const [overtakeMinSpeedKmh, setOvertakeMinSpeedKmh] = useState(
+    initialServer?.traffic_config?.overtakeMinSpeedKmh ?? 80
+  );
+  const [customScriptUrl, setCustomScriptUrl] = useState(
+    initialServer?.traffic_config?.customScriptUrl || ''
+  );
   const [welcomeMessage, setWelcomeMessage] = useState(
     initialServer?.traffic_config?.welcomeMessage || ''
   );
@@ -254,6 +263,9 @@ export default function ServerFormModal({
           maxSafetyDistanceMeters: Number(maxSafetyDistanceMeters),
           stateSpawnDistanceMeters: Number(stateSpawnDistanceMeters),
           twoWayTraffic,
+          overtakeEnabled,
+          overtakeMinSpeedKmh: Number(overtakeMinSpeedKmh),
+          customScriptUrl: customScriptUrl.trim(),
           trafficCars: trafficCarIds,
           trafficPackIds,
           welcomeMessage,
@@ -1129,6 +1141,60 @@ export default function ServerFormModal({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* In-Game Overtake / Makas & Hiz Skoru HUD (CSP Online Lua) */}
+          {engine === 'assettoserver' && (
+            <div className="p-4 rounded-xl bg-[#090d14] border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={overtakeEnabled}
+                    onChange={(e) => setOvertakeEnabled(e.target.checked)}
+                    className="w-4 h-4 accent-red-600"
+                  />
+                  <span className="text-sm font-semibold text-white">
+                    Oyun İçi Makas &amp; Hız Skoru HUD Aktif (CSP Overtake Lua)
+                  </span>
+                </label>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  Oyuncuya Otomatik Yüklenir
+                </span>
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                Sunucuya giren herkesin ekranında sol üstte canlı <strong>Makas, Hız Çarpanı, Combo (x10), Kişisel Rekor</strong> ve <strong>Sunucu Top 3</strong> görünür. Ekstra mod kurmaya gerek yoktur (CSP v0.1.76+).
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Skor Başlangıç Hızı (km/h)
+                  </label>
+                  <input
+                    type="number"
+                    min={40}
+                    max={200}
+                    value={overtakeMinSpeedKmh}
+                    onChange={(e) => setOvertakeMinSpeedKmh(Number(e.target.value))}
+                    className="panel-input"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs text-slate-400 mb-1">
+                    Ek Özel CSP Lua Script URL (Opsiyonel — GitHub Raw / Pastebin)
+                  </label>
+                  <input
+                    type="url"
+                    value={customScriptUrl}
+                    onChange={(e) => setCustomScriptUrl(e.target.value)}
+                    className="panel-input font-mono text-xs"
+                    placeholder="https://raw.githubusercontent.com/.../script.lua"
+                  />
+                </div>
+              </div>
             </div>
           )}
 
