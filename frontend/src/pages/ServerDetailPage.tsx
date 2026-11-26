@@ -32,6 +32,7 @@ import {
   formatBytes,
   getToken,
   uploadWithProgress,
+  type DriftScoreItem,
   type OvertakeScoreItem,
   type ServerItem,
 } from '../lib/api';
@@ -66,6 +67,7 @@ export default function ServerDetailPage() {
   const [server, setServer] = useState<ServerItem | null>(null);
   const [tab, setTab] = useState<'console' | 'files' | 'players' | 'lists' | 'plugins' | 'leaderboard'>('console');
   const [leaderboard, setLeaderboard] = useState<OvertakeScoreItem[]>([]);
+  const [driftLeaderboard, setDriftLeaderboard] = useState<DriftScoreItem[]>([]);
   const [files, setFiles] = useState<Record<string, string>>({});
   const [activeFile, setActiveFile] = useState<(typeof CONFIG_TABS)[number]>('server_cfg.ini');
   const [logs, setLogs] = useState('');
@@ -95,12 +97,15 @@ export default function ServerDetailPage() {
 
   const load = async () => {
     if (!id) return;
-    const [srvRes, filesRes, listsRes, pluginsRes, lbRes] = await Promise.all([
+    const [srvRes, filesRes, listsRes, pluginsRes, lbRes, driftLbRes] = await Promise.all([
       apiFetch<{ server: ServerItem }>(`/api/servers/${id}`),
       apiFetch<{ files: Record<string, string> }>(`/api/servers/${id}/files`),
       apiFetch<{ admins: string; whitelist: string; blacklist: string }>(`/api/servers/${id}/lists`),
       apiFetch<{ plugins: PluginEntry[] }>(`/api/servers/${id}/plugins`),
       apiFetch<{ scores: OvertakeScoreItem[] }>(`/api/servers/${id}/leaderboard`).catch(() => ({
+        scores: [],
+      })),
+      apiFetch<{ scores: DriftScoreItem[] }>(`/api/servers/${id}/drift-leaderboard`).catch(() => ({
         scores: [],
       })),
     ]);
@@ -111,6 +116,7 @@ export default function ServerDetailPage() {
     setBlacklistTxt(listsRes.blacklist);
     setPlugins(pluginsRes.plugins);
     setLeaderboard(lbRes.scores);
+    setDriftLeaderboard(driftLbRes.scores);
   };
 
   useEffect(() => {
@@ -587,7 +593,7 @@ export default function ServerDetailPage() {
                   : 'border-transparent text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Trophy className="w-4 h-4 text-amber-400" /> Makas Skoru ({leaderboard.length})
+              <Trophy className="w-4 h-4 text-amber-400" /> Skorlar ({leaderboard.length + driftLeaderboard.length})
             </button>
           )}
         </div>
@@ -844,6 +850,82 @@ export default function ServerDetailPage() {
                 </table>
               </div>
             )}
+
+            {/* Drift & Tandem Leaderboard */}
+            <div className="pt-4 border-t border-slate-800 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                    <Trophy className="w-4 h-4 text-purple-400" /> Oyun İçi Drift &amp; Tandem Liderlik Tablosu
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Durum:{' '}
+                    {server.traffic_config?.driftHudEnabled ? (
+                      <span className="text-purple-300 font-semibold">Aktif (CSP Drift Lua)</span>
+                    ) : (
+                      <span className="text-slate-400">
+                        Kapalı — Düzenle menüsünden &quot;Drift &amp; Tandem Skoru HUD&quot; kutusunu açıp sunucuyu yeniden başlatın.
+                      </span>
+                    )}
+                  </p>
+                </div>
+                {driftLeaderboard.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      if (!id || !confirm('Tüm drift skorları silinsin mi?')) return;
+                      await apiFetch(`/api/servers/${id}/drift-leaderboard`, { method: 'DELETE' });
+                      await load();
+                    }}
+                    className="btn-secondary text-xs text-red-400"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Drift Skorlarını Sıfırla
+                  </button>
+                )}
+              </div>
+
+              {driftLeaderboard.length === 0 ? (
+                <div className="text-sm text-slate-400 py-5 text-center bg-[#090d14] border border-slate-800 rounded-xl">
+                  Henüz kayıtlı drift skoru yok. Drift HUD aktifken yanladıkça en yüksek drift rekorları burada ve davet sayfasında görünür.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
+                        <th className="py-2 pr-3">#</th>
+                        <th className="py-2 pr-3">Sürücü</th>
+                        <th className="py-2 pr-3">Araç</th>
+                        <th className="py-2 pr-3 text-right">Skor</th>
+                        <th className="py-2 pr-3 text-right">Max Açı</th>
+                        <th className="py-2 pr-3 text-right">Geçiş</th>
+                        <th className="py-2 text-right">Max Combo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {driftLeaderboard.map((row, idx) => (
+                        <tr key={`${row.driver_name}-${idx}`}>
+                          <td className="py-2 pr-3 font-mono font-bold text-purple-400">#{idx + 1}</td>
+                          <td className="py-2 pr-3 font-semibold text-white">{row.driver_name}</td>
+                          <td className="py-2 pr-3 font-mono text-slate-400">{row.car_id || '-'}</td>
+                          <td className="py-2 pr-3 text-right font-mono font-bold text-purple-300">
+                            {row.score.toLocaleString('tr-TR')}
+                          </td>
+                          <td className="py-2 pr-3 text-right font-mono text-sky-300">
+                            {row.max_angle_deg}°
+                          </td>
+                          <td className="py-2 pr-3 text-right font-mono text-slate-200">
+                            {row.transitions}
+                          </td>
+                          <td className="py-2 text-right font-mono text-amber-300">
+                            x{Number(row.max_combo || 1).toFixed(1)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

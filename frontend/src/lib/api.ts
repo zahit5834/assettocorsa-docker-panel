@@ -108,6 +108,7 @@ export interface ServerItem {
     twoWayTraffic?: boolean;
     overtakeEnabled?: boolean;
     overtakeMinSpeedKmh?: number;
+    driftHudEnabled?: boolean;
     customScriptUrl?: string;
     trafficCars: string[];
     trafficPackIds?: string[];
@@ -195,6 +196,17 @@ export interface OvertakeScoreItem {
   updated_at: string;
 }
 
+export interface DriftScoreItem {
+  id?: number;
+  driver_name: string;
+  car_id: string;
+  score: number;
+  max_combo: number;
+  max_angle_deg: number;
+  transitions: number;
+  updated_at: string;
+}
+
 export interface PublicJoinPayload {
   server: {
     id: string;
@@ -214,6 +226,7 @@ export interface PublicJoinPayload {
     httpPort: number;
     trafficEnabled: boolean;
     overtakeEnabled?: boolean;
+    driftHudEnabled?: boolean;
     cmAutodownload: boolean;
     publicIp: string;
     panelPort: number;
@@ -271,6 +284,7 @@ export interface PublicJoinPayload {
     downloadUrl: string | null;
   }>;
   leaderboard?: OvertakeScoreItem[];
+  driftLeaderboard?: DriftScoreItem[];
   bundle: {
     available: boolean;
     downloadableCount: number;

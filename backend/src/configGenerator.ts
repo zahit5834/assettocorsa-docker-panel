@@ -105,6 +105,7 @@ export interface TrafficConfig {
   twoWayTraffic?: boolean;
   overtakeEnabled?: boolean;
   overtakeMinSpeedKmh?: number;
+  driftHudEnabled?: boolean;
   customScriptUrl?: string;
   trafficCars: string[];
   trafficPackIds?: string[];
@@ -131,6 +132,7 @@ export const DEFAULT_TRAFFIC_CONFIG: TrafficConfig = {
   twoWayTraffic: false,
   overtakeEnabled: false,
   overtakeMinSpeedKmh: 80,
+  driftHudEnabled: false,
   customScriptUrl: '',
   trafficCars: [],
   trafficPackIds: [],
@@ -503,12 +505,21 @@ export function generateCspExtraOptionsIni(params: {
     '',
   ];
 
-  // CSP Online Lua Scripts (Makas & Hiz Skoru HUD + optional custom script URL)
+  // CSP Online Lua Scripts (Makas HUD, Drift HUD + optional custom script URL)
   let scriptIndex = 0;
   if (trafficConfig?.overtakeEnabled) {
     lines.push(
       `[SCRIPT_${scriptIndex}]`,
       `SCRIPT = '${baseUrl}/api/public/scripts/${encodeURIComponent(server.slug)}/overtake.lua'`,
+      'REQUIRED = 0',
+      ''
+    );
+    scriptIndex++;
+  }
+  if (trafficConfig?.driftHudEnabled) {
+    lines.push(
+      `[SCRIPT_${scriptIndex}]`,
+      `SCRIPT = '${baseUrl}/api/public/scripts/${encodeURIComponent(server.slug)}/drift.lua'`,
       'REQUIRED = 0',
       ''
     );

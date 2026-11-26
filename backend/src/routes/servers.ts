@@ -53,6 +53,7 @@ const trafficSchema = z
     twoWayTraffic: z.boolean().default(false),
     overtakeEnabled: z.boolean().default(false),
     overtakeMinSpeedKmh: z.number().int().min(40).max(200).default(80),
+    driftHudEnabled: z.boolean().default(false),
     customScriptUrl: z.string().max(500).optional().default(''),
     trafficCars: z.array(z.string()).default([]),
     trafficPackIds: z.array(z.string()).default([]),
@@ -749,6 +750,29 @@ export async function serverRoutes(app: FastifyInstance) {
     const db = getDb();
     db.prepare('DELETE FROM overtake_scores WHERE server_id = ?').run(id);
     return { success: true, message: 'Makas liderlik tablosu sıfırlandı.' };
+  });
+
+  app.get('/api/servers/:id/drift-leaderboard', { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const db = getDb();
+    const server = db.prepare('SELECT id FROM servers WHERE id = ?').get(id) as
+      | { id: string }
+      | undefined;
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+    const scores = db
+      .prepare(
+        `SELECT id, driver_name, car_id, score, max_combo, max_angle_deg, transitions, updated_at
+         FROM drift_scores WHERE server_id = ? ORDER BY score DESC LIMIT 50`
+      )
+      .all(id);
+    return { scores };
+  });
+
+  app.delete('/api/servers/:id/drift-leaderboard', { preHandler: [requireAuth] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const db = getDb();
+    db.prepare('DELETE FROM drift_scores WHERE server_id = ?').run(id);
+    return { success: true, message: 'Drift liderlik tablosu sıfırlandı.' };
   });
 
   // Live WebSocket console log stream

@@ -116,6 +116,12 @@ export default function PublicJoinPage() {
               </span>
             )}
 
+            {server.driftHudEnabled && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                <Trophy className="w-3 h-3" /> Drift &amp; Tandem Skoru
+              </span>
+            )}
+
             {server.hasPassword && (
               <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-red-500/15 text-red-300 border border-red-500/30">
                 <Lock className="w-3 h-3" /> Şifreli
@@ -265,6 +271,56 @@ export default function PublicJoinPage() {
                       </td>
                       <td className="py-2.5 text-right font-mono text-sky-300">
                         {row.max_speed_kmh} km/h
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* Drift & Tandem Leaderboard */}
+        {data.driftLeaderboard && data.driftLeaderboard.length > 0 && (
+          <section className="panel-card p-5 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-purple-400" /> Drift &amp; Tandem Liderlik Tablosu
+              </h2>
+              <span className="text-xs text-slate-400">Canlı Drift Rekorları</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs sm:text-sm text-left">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400">
+                    <th className="py-2 pr-3">#</th>
+                    <th className="py-2 pr-3">Sürücü</th>
+                    <th className="py-2 pr-3">Araç</th>
+                    <th className="py-2 pr-3 text-right">Skor</th>
+                    <th className="py-2 pr-3 text-right">Max Açı</th>
+                    <th className="py-2 pr-3 text-right">Geçiş</th>
+                    <th className="py-2 text-right">Max Combo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {data.driftLeaderboard.map((row, idx) => (
+                    <tr key={`${row.driver_name}-${idx}`} className="hover:bg-slate-800/30">
+                      <td className="py-2.5 pr-3 font-mono font-bold text-purple-400">#{idx + 1}</td>
+                      <td className="py-2.5 pr-3 font-semibold text-white">{row.driver_name}</td>
+                      <td className="py-2.5 pr-3 font-mono text-xs text-slate-400">
+                        {row.car_id || '-'}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono font-bold text-purple-300">
+                        {row.score.toLocaleString('tr-TR')}
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-sky-300">
+                        {row.max_angle_deg}°
+                      </td>
+                      <td className="py-2.5 pr-3 text-right font-mono text-slate-200">
+                        {row.transitions}
+                      </td>
+                      <td className="py-2.5 text-right font-mono text-amber-300">
+                        x{Number(row.max_combo || 1).toFixed(1)}
                       </td>
                     </tr>
                   ))}

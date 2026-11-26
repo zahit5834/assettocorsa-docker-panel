@@ -22,6 +22,7 @@ import {
 } from './contentScanner.js';
 import { getDb, type CarRecord, type ServerRecord, type TrackRecord } from './db.js';
 import { stripDockerMultiplexHeaders } from './dockerManager.js';
+import { generateDriftLuaScript } from './driftScript.js';
 import { generateOvertakeLuaScript } from './overtakeScript.js';
 import { checkPortConflicts, suggestAvailablePorts } from './serverService.js';
 
@@ -421,6 +422,7 @@ describe('port conflict detection & docker log parsing', () => {
         rightLaneOffset: 0,
         overtakeEnabled: true,
         overtakeMinSpeedKmh: 90,
+        driftHudEnabled: true,
         customScriptUrl: 'https://example.com/custom.lua',
         trafficCars: [],
       },
@@ -428,6 +430,8 @@ describe('port conflict detection & docker log parsing', () => {
     expect(csp).toContain('[SCRIPT_0]');
     expect(csp).toContain("SCRIPT = 'http://156.233.71.74:5829/api/public/scripts/shutoko-tr/overtake.lua'");
     expect(csp).toContain('[SCRIPT_1]');
+    expect(csp).toContain("SCRIPT = 'http://156.233.71.74:5829/api/public/scripts/shutoko-tr/drift.lua'");
+    expect(csp).toContain('[SCRIPT_2]');
     expect(csp).toContain("SCRIPT = 'https://example.com/custom.lua'");
 
     const lua = generateOvertakeLuaScript({
@@ -440,5 +444,15 @@ describe('port conflict detection & docker log parsing', () => {
     expect(lua).toContain('function script.update(dt)');
     expect(lua).toContain('function script.drawUI()');
     expect(lua).toContain('/api/public/overtake/shutoko-tr/score');
+
+    const driftLua = generateDriftLuaScript({
+      serverSlug: 'dag-drift',
+      serverName: 'Dağ Drift',
+      apiBaseUrl: 'http://156.233.71.74:5829',
+    });
+    expect(driftLua).toContain('DRIFT & TANDEM SKORU');
+    expect(driftLua).toContain('function script.update(dt)');
+    expect(driftLua).toContain('function script.drawUI()');
+    expect(driftLua).toContain('/api/public/drift/dag-drift/score');
   });
 });

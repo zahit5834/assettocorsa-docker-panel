@@ -69,6 +69,18 @@ export interface OvertakeScoreRecord {
   updated_at: string;
 }
 
+export interface DriftScoreRecord {
+  id: number;
+  server_id: string;
+  driver_name: string;
+  car_id: string;
+  score: number;
+  max_combo: number;
+  max_angle_deg: number;
+  transitions: number;
+  updated_at: string;
+}
+
 export interface ServerRecord {
   id: string;
   slug: string;
@@ -242,6 +254,19 @@ function initSchema(db: DatabaseSync) {
       max_combo REAL NOT NULL DEFAULT 1,
       max_speed_kmh INTEGER NOT NULL DEFAULT 0,
       overtakes INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(server_id, driver_name)
+    );
+
+    CREATE TABLE IF NOT EXISTS drift_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      server_id TEXT NOT NULL,
+      driver_name TEXT NOT NULL,
+      car_id TEXT NOT NULL DEFAULT '',
+      score INTEGER NOT NULL DEFAULT 0,
+      max_combo REAL NOT NULL DEFAULT 1,
+      max_angle_deg INTEGER NOT NULL DEFAULT 0,
+      transitions INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(server_id, driver_name)
     );

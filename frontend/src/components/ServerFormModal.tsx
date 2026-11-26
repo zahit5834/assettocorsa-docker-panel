@@ -96,6 +96,9 @@ export default function ServerFormModal({
   const [overtakeMinSpeedKmh, setOvertakeMinSpeedKmh] = useState(
     initialServer?.traffic_config?.overtakeMinSpeedKmh ?? 80
   );
+  const [driftHudEnabled, setDriftHudEnabled] = useState(
+    initialServer ? Boolean(initialServer.traffic_config?.driftHudEnabled) : false
+  );
   const [customScriptUrl, setCustomScriptUrl] = useState(
     initialServer?.traffic_config?.customScriptUrl || ''
   );
@@ -186,6 +189,13 @@ export default function ServerFormModal({
     setEngine(tpl.defaultEngine);
     setTrafficEnabled(tpl.trafficEnabled);
     setMaxClients(tpl.maxClients);
+    if (tpl.id === 'drift') {
+      setOvertakeEnabled(false);
+      setDriftHudEnabled(true);
+    } else if (tpl.id === 'freeroam_traffic') {
+      setOvertakeEnabled(true);
+      setDriftHudEnabled(false);
+    }
   };
 
   const suggestPorts = async () => {
@@ -265,6 +275,7 @@ export default function ServerFormModal({
           twoWayTraffic,
           overtakeEnabled,
           overtakeMinSpeedKmh: Number(overtakeMinSpeedKmh),
+          driftHudEnabled,
           customScriptUrl: customScriptUrl.trim(),
           trafficCars: trafficCarIds,
           trafficPackIds,
@@ -1144,34 +1155,58 @@ export default function ServerFormModal({
             </div>
           )}
 
-          {/* In-Game Overtake / Makas & Hiz Skoru HUD (CSP Online Lua) */}
+          {/* In-Game Overtake / Drift HUDs (CSP Online Lua) */}
           {engine === 'assettoserver' && (
             <div className="p-4 rounded-xl bg-[#090d14] border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={overtakeEnabled}
-                    onChange={(e) => setOvertakeEnabled(e.target.checked)}
-                    className="w-4 h-4 accent-red-600"
-                  />
-                  <span className="text-sm font-semibold text-white">
-                    Oyun İçi Makas &amp; Hız Skoru HUD Aktif (CSP Overtake Lua)
-                  </span>
-                </label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-white">
+                  Oyun İçi Skor HUD&apos;ları (CSP Online Lua)
+                </span>
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
                   Oyuncuya Otomatik Yüklenir
                 </span>
               </div>
 
-              <p className="text-[11px] text-slate-400">
-                Sunucuya giren herkesin ekranında sol üstte canlı <strong>Makas, Hız Çarpanı, Combo (x10), Kişisel Rekor</strong> ve <strong>Sunucu Top 3</strong> görünür. Ekstra mod kurmaya gerek yoktur (CSP v0.1.76+).
-              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label className="flex items-start gap-2.5 p-3 rounded-lg bg-[#0c111b] border border-slate-800 hover:border-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={overtakeEnabled}
+                    onChange={(e) => setOvertakeEnabled(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 accent-red-600"
+                  />
+                  <div>
+                    <div className="text-xs font-semibold text-white">
+                      Makas &amp; Hız Skoru HUD (Trafik)
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Yakın makas, hız çarpanı, x10 combo, rekor ve Top 3 (Shutoko / No Hesi).
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2.5 p-3 rounded-lg bg-[#0c111b] border border-slate-800 hover:border-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={driftHudEnabled}
+                    onChange={(e) => setDriftHudEnabled(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 accent-purple-500"
+                  />
+                  <div>
+                    <div className="text-xs font-semibold text-white">
+                      Drift &amp; Tandem Skoru HUD (Drift / Touge)
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Canlı açı göstergesi (°), geçiş bonusu, Tandem x1.5, rekor ve Drift Top 3.
+                    </p>
+                  </div>
+                </label>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs text-slate-400 mb-1">
-                    Skor Başlangıç Hızı (km/h)
+                    Makas Başlangıç Hızı (km/h)
                   </label>
                   <input
                     type="number"
@@ -1184,14 +1219,14 @@ export default function ServerFormModal({
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-xs text-slate-400 mb-1">
-                    Ek Özel CSP Lua Script URL (Opsiyonel — GitHub Raw / Pastebin)
+                    Ek Özel CSP Lua Script URL (Opsiyonel — Boş bırakabilirsiniz)
                   </label>
                   <input
                     type="url"
                     value={customScriptUrl}
                     onChange={(e) => setCustomScriptUrl(e.target.value)}
                     className="panel-input font-mono text-xs"
-                    placeholder="https://raw.githubusercontent.com/.../script.lua"
+                    placeholder="Opsiyonel: https://raw.githubusercontent.com/.../script.lua"
                   />
                 </div>
               </div>

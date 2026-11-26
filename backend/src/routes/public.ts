@@ -8,12 +8,14 @@ import {
   getDb,
   getSetting,
   type CarRecord,
+  type DriftScoreRecord,
   type OvertakeScoreRecord,
   type PackRecord,
   type ServerRecord,
   type TrackRecord,
 } from '../db.js';
 import { dockerManager } from '../dockerManager.js';
+import { generateDriftLuaScript } from '../driftScript.js';
 import { generateOvertakeLuaScript } from '../overtakeScript.js';
 import { resolveServerContent } from '../serverService.js';
 
@@ -154,6 +156,12 @@ export async function publicRoutes(app: FastifyInstance) {
          FROM overtake_scores WHERE server_id = ? ORDER BY score DESC LIMIT 10`
       )
       .all(server.id) as unknown as OvertakeScoreRecord[];
+    const driftLeaderboard = db
+      .prepare(
+        `SELECT driver_name, car_id, score, max_combo, max_angle_deg, transitions, updated_at
+         FROM drift_scores WHERE server_id = ? ORDER BY score DESC LIMIT 10`
+      )
+      .all(server.id) as unknown as DriftScoreRecord[];
 
     return {
       server: {
@@ -174,6 +182,7 @@ export async function publicRoutes(app: FastifyInstance) {
         httpPort: server.http_port,
         trafficEnabled: Boolean(server.traffic_enabled),
         overtakeEnabled: Boolean(trafficCfg.overtakeEnabled),
+        driftHudEnabled: Boolean(trafficCfg.driftHudEnabled),
         cmAutodownload: Boolean(server.cm_autodownload),
         publicIp,
         panelPort,
@@ -190,6 +199,7 @@ export async function publicRoutes(app: FastifyInstance) {
       cars: carsInfo,
       packs: packsInfo,
       leaderboard,
+      driftLeaderboard,
       bundle: {
         available: downloadableCars.length > 0 || Boolean(downloadableTrack),
         downloadableCount: downloadableCars.length + (downloadableTrack ? 1 : 0),
@@ -378,6 +388,101 @@ export async function publicRoutes(app: FastifyInstance) {
          SET car_id = ?, score = ?, max_combo = ?, max_speed_kmh = ?, overtakes = ?, updated_at = datetime('now')
          WHERE server_id = ? AND driver_name = ?`
       ).run(carId, score, maxCombo, maxSpeedKmh, overtakes, server.id, driverName);
+      return { success: true, isNewBest: true };
+    }
+
+    return { success: true, isNewBest: false };
+  });
+
+  // CSP Online Script endpoint for in-game Drift & Tandem Skoru HUD
+  app.get('/api/public/scripts/:slug/drift.lua', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const db = getDb();
+    const server = db
+      .prepare('SELECT * FROM servers WHERE slug = ? OR id = ?')
+      .get(slug, slug) as ServerRecord | undefined;
+    if (!server) {
+      return reply.code(404).type('text/plain').send('-- Server not found\n');
+    }
+    const publicIp = getSetting(db, 'public_ip', '127.0.0.1');
+    const panelPort = Number(getSetting(db, 'panel_port', '5829'));
+    const trafficCfg = safeJsonParse<Partial<TrafficConfig>>(server.traffic_config_json, {});
+    const lua = generateDriftLuaScript({
+      serverSlug: server.slug,
+      serverName: server.name,
+      apiBaseUrl: `http://${publicIp}:${panelPort}`,
+      offsetY: trafficCfg.overtakeEnabled ? 360 : 92,
+    });
+    reply.header('Content-Type', 'text/plain; charset=utf-8');
+    reply.header('Cache-Control', 'no-cache');
+    return reply.send(lua);
+  });
+
+  app.get('/api/public/drift/:slug/leaderboard', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const db = getDb();
+    const server = db
+      .prepare('SELECT id, name, slug FROM servers WHERE slug = ? OR id = ?')
+      .get(slug, slug) as Pick<ServerRecord, 'id' | 'name' | 'slug'> | undefined;
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const scores = db
+      .prepare(
+        `SELECT driver_name, car_id, score, max_combo, max_angle_deg, transitions, updated_at
+         FROM drift_scores WHERE server_id = ? ORDER BY score DESC LIMIT 20`
+      )
+      .all(server.id) as unknown as DriftScoreRecord[];
+    return { server: server.name, scores };
+  });
+
+  const driftRateLimit = new Map<string, number>();
+  app.post('/api/public/drift/:slug/score', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const ip = request.ip || 'unknown';
+    const now = Date.now();
+    const last = driftRateLimit.get(ip) || 0;
+    if (now - last < 2000) {
+      return reply.code(429).send({ error: 'Çok hızlı istek.' });
+    }
+    driftRateLimit.set(ip, now);
+
+    const db = getDb();
+    const server = db
+      .prepare('SELECT id FROM servers WHERE slug = ? OR id = ?')
+      .get(slug, slug) as Pick<ServerRecord, 'id'> | undefined;
+    if (!server) return reply.code(404).send({ error: 'Sunucu bulunamadı.' });
+
+    const body = (request.body || {}) as Record<string, unknown>;
+    const rawName = String(body.driverName || '').trim().slice(0, 48);
+    const driverName = rawName.replace(/[\r\n\t]/g, ' ') || 'Sürücü';
+    const carId = String(body.carId || '').trim().slice(0, 64);
+    const score = Math.floor(Number(body.score) || 0);
+    const maxCombo = Math.max(1, Math.min(20, Number(body.maxCombo) || 1));
+    const maxAngleDeg = Math.max(0, Math.min(90, Math.floor(Number(body.maxAngleDeg) || 0)));
+    const transitions = Math.max(0, Math.min(5000, Math.floor(Number(body.transitions) || 0)));
+
+    if (score < 100 || score > 50_000_000) {
+      return reply.code(400).send({ error: 'Geçersiz skor.' });
+    }
+
+    const existing = db
+      .prepare('SELECT score FROM drift_scores WHERE server_id = ? AND driver_name = ?')
+      .get(server.id, driverName) as { score: number } | undefined;
+
+    if (!existing) {
+      db.prepare(
+        `INSERT INTO drift_scores (server_id, driver_name, car_id, score, max_combo, max_angle_deg, transitions, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+      ).run(server.id, driverName, carId, score, maxCombo, maxAngleDeg, transitions);
+      return { success: true, isNewBest: true };
+    }
+
+    if (score > existing.score) {
+      db.prepare(
+        `UPDATE drift_scores
+         SET car_id = ?, score = ?, max_combo = ?, max_angle_deg = ?, transitions = ?, updated_at = datetime('now')
+         WHERE server_id = ? AND driver_name = ?`
+      ).run(carId, score, maxCombo, maxAngleDeg, transitions, server.id, driverName);
       return { success: true, isNewBest: true };
     }
 
